@@ -1,2 +1,1 @@
-# 2023-CTexploreR
-CT genes and CTexploreR paper
+# CT genes and CTexploreR paper and poster
