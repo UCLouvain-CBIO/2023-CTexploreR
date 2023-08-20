@@ -4,5 +4,6 @@
 .Ruserdata
 *.Rproj
 data/*.meth
+data/zhou_solo_WCGW_hg38.bed
 *_files
 data_rmd
