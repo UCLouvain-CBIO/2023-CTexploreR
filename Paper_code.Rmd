@@ -30,6 +30,7 @@ library(circlize)
 library(SingleCellExperiment)
 library(org.Hs.eg.db)
 library(clusterProfiler)
+library(msigdbr)
 library(DOSE)
 library(tibble)
 library(BiocParallel)
@@ -965,6 +966,20 @@ CT_genes %>%
 ## Gene function
 
 ```{r GO_ORA}
+
+msigdbr(species = "Homo sapiens" , category = "C5") %>% 
+  filter(gene_symbol %in% CT_genes$external_gene_name) %>% 
+  pull(gene_symbol) %>% 
+  unique() %>% 
+  length()
+
+msigdbr(species = "Homo sapiens" , category = "H") %>% 
+  filter(gene_symbol %in% CT_genes$external_gene_name) %>% 
+  pull(gene_symbol) %>% 
+  unique() %>% 
+  length()
+
+
 go_ora <- enrichGO(gene = CT_genes$ensembl_gene_id,
                    keyType = "ENSEMBL",
                    OrgDb = org.Hs.eg.db,
@@ -1253,7 +1268,8 @@ CTmeth_NA_PMD_GR <-subsetByOverlaps(subsetByOverlaps(meth_reg_prom_GR,
                                     NA_nonPMD_GR)
 ```
 
-Now that these overlapping have been done, I can report them into my data as a boulean column to use analyse it.
+Now that these overlapping have been done, I can report them into my data as a 
+boulean column to use analyse it.
 
 
 ```{r PMD_in_CT}
@@ -1425,7 +1441,13 @@ CT_genes <- left_join(CT_genes, PMD_CT_results)
 
 ## Methylation in an aging model : CD4+ cells 
 
-Now that we know that CT genes are indeed enriched in PMDs, we have to go further. Indeed, we know that proliferation has an impact on PMD and their methylation : there are losses of methylation with time. As CT genes are located in PMDs, we can hypothesise that their methylation might be impacted by the losses happening during proliferation. We thus want to focus on the impact on CT genes of the methylation changes happening on PMDss in proliferative or aging cells.
+Now that we know that CT genes are indeed enriched in PMDs, we have to go 
+further. Indeed, we know that proliferation has an impact on PMD and their 
+methylation : there are losses of methylation with time. As CT genes are located
+in PMDs, we can hypothesise that their methylation might be impacted by the 
+losses happening during proliferation. We thus want to focus on the impact on CT
+genes of the methylation changes happening on PMDss in proliferative or aging 
+cells.
 
 ### Data processing
 
@@ -1494,9 +1516,16 @@ done
 
 ```
 
-Bisulfite-Seq data coming from a male newborn, a middle age donor and a male centenarian.
+Bisulfite-Seq data coming from a male newborn, a middle age donor and a male 
+centenarian.
 
-Quality of the data is good, with a mean of 13 reads per cytosine. However, middle age data has no info about the sex of the donor. By comparing the number of reads by chromosome in this sample, a female one and the male ones, we saw that the proportion of reads on chromosomes X and Y showed that the middle age data come from a woman. We then have to be very careful when analysing the X chromosome with the middle age data. To facilitate the analysis and compare all samples, I’ll remove the adult data on chrX.
+Quality of the data is good, with a mean of 13 reads per cytosine. However, 
+middle age data has no info about the sex of the donor. By comparing the number 
+of reads by chromosome in this sample, a female one and the male ones, we saw 
+that the proportion of reads on chromosomes X and Y showed that the middle age 
+data come from a woman. We then have to be very careful when analysing the X 
+chromosome with the middle age data. To facilitate the analysis and compare all
+samples, I’ll remove the adult data on chrX.
 
 ```{r load_CD4, message = FALSE, warning = FALSE}
 columns <- c("chromosome", "position", "strand", "sequence context","methylation_level","number_of_reads")
@@ -1804,7 +1833,7 @@ for (gene in names(nonCT_per_gene_CD4_datasets)) {
 
 rm(p, i, k, tmp)
 
-#load("data_rmd/nonCT_per_gene_CD4_datasets.rda")
+# load("data_rmd/nonCT_per_gene_CD4_datasets.rda")
 
 nonCT_meth_means <- sapply(nonCT_per_gene_CD4_datasets, rowMeans, na.rm = TRUE)
 nonCT_meth_means <- nonCT_meth_means %>%
@@ -1998,7 +2027,8 @@ wilcox.test(filter(CT_stat_analysis, padj <= 0.05)$delta_meth,
             alternative = "greater")
 ```
 
-pvalue here is significative. This shows then that delta_meth are smaller in nonCT genes and demethylation in nonCT genes is then higher than in CT genes. 
+pvalue here is significative. This shows then that delta_meth are smaller in 
+nonCT genes and demethylation in nonCT genes is then higher than in CT genes. 
 
 
 However, the difference between delta_meth distributions could be the result of 
