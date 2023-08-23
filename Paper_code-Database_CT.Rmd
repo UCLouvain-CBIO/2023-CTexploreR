@@ -1,0 +1,1034 @@
+---
+title: "Code used to generate paper results : Database comparison and CT characteristics"
+author: "Julie Devis"
+date: "2023-08-28"
+output: 
+  html_document:
+    theme: cosmo
+    df_print : paged
+    highlight : default
+    toc: yes
+    number_sections : TRUE
+    toc_depth : 4
+---
+
+# Loading data and packages
+
+
+```{r library, message = FALSE}
+library(readxl)
+library(readr)
+library(CTexploreR)
+library(Vennerable)
+library(biomaRt)
+library(tidyverse)
+library(SummarizedExperiment)
+library(factoextra)
+library(UpSetR)
+library(ComplexHeatmap)
+library(circlize)
+library(SingleCellExperiment)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(msigdbr)
+library(DOSE)
+library(BiocParallel)
+library(patchwork)
+library(Biostrings)
+```
+
+Gene names/synonyms required for databases cleaning
+
+```{r ensembl_synonym, warning=FALSE, message=FALSE}
+ensembl <- biomaRt::useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+attributes_vector <- c("ensembl_gene_id", "external_gene_name",
+                       "external_synonym", "gene_biotype",
+                       "chromosome_name", "band", "start_position", "end_position",
+                       "strand")
+ensembl_gene_synonym <- as_tibble(getBM(attributes = attributes_vector, mart = ensembl))
+
+ensembl_gene_synonym <- ensembl_gene_synonym %>%
+  mutate(external_synonym = sub(pattern = "ORF", external_synonym, 
+                                replacement = "orf"))
+
+attributes_vector <- c("ensembl_gene_id", "external_gene_name")
+ensembl_gene_names <- as_tibble(getBM(attributes = attributes_vector, mart = ensembl))
+```
+
+
+```{r load_data, warning=FALSE, message=FALSE}
+GTEX_data <- CTdata::GTEX_data()
+normal_tissues_multimapping_data <- CTdata::normal_tissues_multimapping_data()
+CCLE_data <- CTdata::CCLE_data()
+TCGA_TPM <- CTdata::TCGA_TPM()
+DAC_treated_cells_multimapping <- CTdata::DAC_treated_cells_multimapping()
+load("../CTdata/eh_data/testis_sce.rda") 
+load("../CTdata/eh_data/scRNAseq_HPA.rda")
+load("../CTdata/eh_data/CT_mean_methylation_in_tissues.rda")
+```
+
+
+Common figures parameters
+
+```{r fig_param}
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 6),
+  title_gp = gpar(col = "black", fontsize = 6),
+  row_names_gp = gpar(fontsize = 4),
+  annotation_name_side = "left")
+
+legend_colors <- c("#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598",
+                   "#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F",
+                   "#9E0142")
+chr_colors <- c("X-linked" = "deeppink", "Not X" = "royalblue1")
+
+meth_colors <- c("Methylation" = "lightgreen", "Not methylation" = "gray")
+```
+
+
+
+# Database comparison
+
+## Lists cleaning
+
+CT lists from other databases have been checked (using GTEx and our 
+`GTEx_expression()` funtion and GeneCards) in order to remove duplicated
+gene names or deprecated ones and allow comparison between databases.
+
+### CTdatabase
+
+Online list copied in a csv file, several lists exist so we combined them.
+
+We checked gene names that were a concetanation of two genes (choice using
+biomaRt synonyms to get the official one), checked which ones had the right names,
+removed duplicated genes, verified lost genes and added back those that should 
+be there.
+
+```{r CTdatabase_cleaning, message = FALSE}
+CTdatabase <- read_delim("data/CTdatabase1.csv", delim = ";", 
+                         escape_double = FALSE, trim_ws = TRUE)
+colnames(CTdatabase) <- c("Family", "Gene_Name", "Chromosomal_localization",
+                          "CT_identifier")
+CTdatabase_bis <- read_csv2("data/CTdatabase2.csv")
+CTdatabase <- left_join(CTdatabase, CTdatabase_bis, 
+                        by = c("Gene_Name" = "Gene_Symbol"))
+
+
+CTdatabase_single <- CTdatabase %>%
+  mutate(Gene_Name = sub(pattern = "/.*$", Gene_Name, replacement = ""))
+CTdatabase_single <- CTdatabase_single %>%
+  mutate(Gene_Name = sub(pattern = ",.*$", Gene_Name, replacement = ""))
+
+
+CTdatabase_official_names <- 
+  unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, 
+                       external_gene_name)) %>%
+  filter(external_gene_name %in% CTdatabase_single$Gene_Name) %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA)
+CTdatabase_synonym <- 
+  ensembl_gene_synonym %>%
+  filter(external_synonym %in% CTdatabase_single$Gene_Name) %>%
+  mutate(Gene_Name = external_synonym) %>%
+  dplyr::select(ensembl_gene_id, external_gene_name, Gene_Name, external_synonym)
+CTdatabase_cleaned <- 
+  rbind(CTdatabase_official_names, CTdatabase_synonym) %>% 
+  left_join(CTdatabase_single)
+
+
+duplicated_genes <- CTdatabase_cleaned$Gene_Name[duplicated(CTdatabase_cleaned$Gene_Name)]
+bad_ids <- ensembl_gene_synonym %>%
+  filter(external_gene_name %in% duplicated_genes | external_synonym %in% duplicated_genes) %>%
+  filter(chromosome_name %in% grep(pattern = "H", x = chromosome_name, value = TRUE)) %>%
+  pull(ensembl_gene_id)
+CTdatabase_cleaned <- CTdatabase_cleaned %>%
+  dplyr::filter(!ensembl_gene_id %in% bad_ids)
+CTdatabase_cleaned <- CTdatabase_cleaned %>%
+  filter(!ensembl_gene_id == "ENSG00000052126")
+CTdatabase_cleaned <- CTdatabase_cleaned %>% 
+  filter(!(ensembl_gene_id == "ENSG00000183305" & Gene_Name == "MAGEA2"))
+CTdatabase_cleaned <- CTdatabase_cleaned %>% 
+  filter(!ensembl_gene_id == "ENSG00000204648")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CSAG3B")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CSAG2", "external_synonym"] <- "CSAG3B"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CT45A4")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CT45A3", "external_synonym"] <- "CT45A4"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "LAGE-1b")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CTAG2", "external_synonym"] <- "LAGE-1b"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CT16.2")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "PAGE5", "external_synonym"] <- "CT16.2"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "SPANXB2")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "SPANXB1", "external_synonym"] <- "SPANXB2"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "SPANXE")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "SPANXD", "external_synonym"] <- "SPANXE"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE1C")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE1D")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE1E")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE2B")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "XAGE2", "external_synonym"] <- "XAGE2B"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CTAGE-2")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CTAGE1", "external_synonym"] <- "CTAGE-2"
+
+
+CTdatabase_cleaned <- ensembl_gene_synonym %>%
+  mutate(Gene_Name = external_synonym) %>%
+  filter(external_synonym == "CXorf61") %>%
+  dplyr::select(ensembl_gene_id, external_gene_name, Gene_Name, external_synonym) %>%
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "Cxorf61", 
+                    c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name)) %>%
+  filter(external_gene_name == "CCNA1") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "cyclin A1", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "GOLGA6L2") %>%
+  filter(ensembl_gene_id == "ENSG00000174450") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "GOLGAGL2 FA", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "LYPD6B") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC130576", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "CT62") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC196993", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "CT75") %>%
+  filter(ensembl_gene_id == "ENSG00000291155") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC440934", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "LINC01192") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC647107", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "TSPY1") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC728137", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "SSX2B") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "SSX2b", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+```
+
+
+
+### Jamin's list
+
+Excel file coming from supplemental data.
+
+```{r Jamin_clean, message = FALSE}
+Jamin_core_CT <- read_excel("data/Jamin_core_CT.xlsx")
+Jamin_core_CT[Jamin_core_CT$Gene == "KIAA1211", "Gene"] <- "CRACD"
+Jamin_core_CT[Jamin_core_CT$Gene == "CXorf67", "Gene"] <- "EZHIP"
+```
+
+### Wang's CTatlas
+
+Excel file coming from supplemental data.
+
+```{r Wang_cleaning, message = FALSE}
+Wang_CT <- read_excel("data/Wang_Suppl_Data_3.xlsx", 
+    sheet = "Supplementary Data 3B", skip = 1)
+colnames(Wang_CT)[1] <- "ensembl_gene_id"
+
+Wang_CT <- ensembl_gene_names %>% 
+  filter(ensembl_gene_id %in% Wang_CT$ensembl_gene_id) %>%
+  right_join(Wang_CT)
+
+Wang_CT[Wang_CT$ensembl_gene_id == "ENSG00000181013", "external_gene_name"] <- "C17orf47"
+Wang_CT[Wang_CT$ensembl_gene_id == "ENSG00000204293", "external_gene_name"] <- "OR8B2"
+Wang_CT[Wang_CT$external_gene_name == "", "external_gene_name"] <- "RNASE11"
+Wang_CT[Wang_CT$external_gene_name == "CHCT1", "external_gene_name"] <- "C17orf64"
+Wang_CT[Wang_CT$external_gene_name == "PRSS40A", "external_gene_name"] <- "TISP43"
+Wang_CT[Wang_CT$external_gene_name == "TEX56P", "external_gene_name"] <- "C6orf201"
+Wang_CT[Wang_CT$external_gene_name == "SLC25A51P4", "external_gene_name"] <- "RP11-113D6.10"
+Wang_CT[Wang_CT$external_gene_name == "TCP10L3", "external_gene_name"] <- "TCP10"
+Wang_CT[Wang_CT$external_gene_name == "SCAND3", "external_gene_name"] <- "ZBED9"
+```
+
+
+### Carter's list
+
+```{r Carter_clean, message = FALSE}
+Carter_CT_list <- read_table("data/Carter_CT_list.txt", skip = 1)
+Carter_CT <- Carter_CT_list[Carter_CT_list$CT_Expression,]
+
+Carter_CT[Carter_CT$Gene == "ENSG00000261649", "Gene_Name"] <- "GOLGA6L7"
+Carter_CT[Carter_CT$Gene == "ENSG00000239620", "Gene_Name"] <- "PRR20G"
+Carter_CT[Carter_CT$Gene == "ENSG00000168148", "Gene_Name"] <- "H3-4"
+Carter_CT[Carter_CT$Gene == "ENSG00000204296", "Gene_Name"] <- "TSBP1"
+Carter_CT[Carter_CT$Gene == "ENSG00000180219", "Gene_Name"] <- "GARIN6"
+Carter_CT[Carter_CT$Gene == "ENSG00000172717", "Gene_Name"] <- "GARIN2"
+Carter_CT[Carter_CT$Gene == "ENSG00000174015", "Gene_Name"] <- "CBY2"
+Carter_CT[Carter_CT$Gene == "ENSG00000224960", "Gene_Name"] <- "PPP4R3C"
+```
+
+
+## CTexploreR data for selection pipeline
+
+To characterise the differences between our database and other, we need the 
+category we created in CTexploreR.
+
+Hereunder is what we used for our selection pipeline (coming from 
+`make_CT_list.R` in `CTdata`), mainly how we created the data. 
+
+```{r make_CT, message = FALSE, warning = FALSE}
+# GTEX data with the tissue specificity category determined
+all_genes <- as_tibble(rowData(GTEX_data), rownames = "ensembl_gene_id")
+all_genes$TPM_testis <- assay(GTEX_data)[, "Testis"]
+
+# Add multimapping_analysis assessing testis-specificity of genes "lowly_expressed"
+
+all_genes <- all_genes %>%
+  left_join(as_tibble(rowData(normal_tissues_multimapping_data), 
+                      rownames = "ensembl_gene_id"))
+
+# Summarise both specificity
+
+all_genes <- all_genes %>%
+  mutate(testis_specificity = case_when(
+    GTEX_category == "testis_specific" |
+      multimapping_analysis == "testis_specific" ~ "testis_specific",
+    GTEX_category == "testis_preferential" ~ "testis_preferential"))
+
+# Add testis scRNA seq highest expressed cell type
+
+all_genes <- all_genes %>%
+  left_join(as_tibble(rowData(testis_sce)) %>%
+              dplyr::select(external_gene_name, testis_cell_type))
+
+# Add higher in somatic scRNAseq data of normal tissues from the Human Protein Atlas 
+
+all_genes <- all_genes %>%
+  left_join(as_tibble(rowData(scRNAseq_HPA), rownames = "ensembl_gene_id") %>%
+              dplyr::select(ensembl_gene_id, external_gene_name,
+                            Higher_in_somatic_cell_type))
+
+# CCLE database analysis added
+
+all_genes <- all_genes %>%
+  left_join(as_tibble(rowData(CCLE_data), rownames = "ensembl_gene_id"))
+all_genes[is.na(all_genes$CCLE_category), "CCLE_category"] <- "not_in_CCLE"
+
+
+# TCGA database analysis added
+
+all_genes <- all_genes %>%
+  left_join(as_tibble(rowData(TCGA_TPM), rownames = "ensembl_gene_id") %>%
+              dplyr::select(ensembl_gene_id, external_gene_name, percent_pos_tum,
+                            percent_neg_tum, max_TPM_in_TCGA, TCGA_category))
+
+all_genes[all_genes$lowly_expressed_in_GTEX == TRUE &
+            all_genes$multimapping_analysis == "testis_specific",
+          "TCGA_category"] <- "multimapping_issue"
+
+# Add DAC analysis
+induced <- as_tibble(rowData(DAC_treated_cells_multimapping), 
+                     rownames = "ensembl_gene_id") %>%
+  filter(induced == TRUE) %>%
+  pull(external_gene_name)
+
+all_genes <- all_genes %>%
+  mutate(DAC_induced = case_when(external_gene_name %in% induced ~ TRUE,
+                                 !external_gene_name %in% induced ~ FALSE))
+
+# Add the most biologically relevant transcript (canonical and coordinates)
+
+ensembl <- biomaRt::useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+attributes_vector <- c("ensembl_gene_id",
+                       "external_gene_name",
+                       "ensembl_transcript_id",
+                       "external_transcript_name",
+                       "chromosome_name",
+                       "strand",
+                       "transcript_start",
+                       "transcript_end",
+                       "transcription_start_site",
+                       "transcript_length",
+                       "transcript_biotype",
+                       "transcript_is_canonical")
+transcripts_infos <- as_tibble(biomaRt::getBM(attributes = attributes_vector,
+                                              mart = ensembl))
+canonical_transcripts <- transcripts_infos %>%
+  filter(transcript_is_canonical == 1) %>%
+  filter(chromosome_name %in% c(1:22, "X", "Y", "MT")) %>%
+  filter(transcript_biotype == "protein_coding" | transcript_biotype == "lncRNA")
+all_genes <- all_genes %>%
+  left_join(canonical_transcripts %>%
+              dplyr::select(ensembl_gene_id,
+                            external_transcript_name, ensembl_transcript_id,
+                            chromosome_name, strand, transcript_start,
+                            transcript_end, transcription_start_site,
+                            transcript_length, transcript_biotype))
+
+```
+
+From there, we filtered based on the testis_specificity ("testis_specific" or 
+"testis_preferential"), testis_cell_type (not "Macrophage", "Endothelial",
+"Myoid", "Sertoli", "Leydig"), Higher_in_somatic_cell_type (TRUE), 
+CCLE_category ("activated") and TCGA_category ("activated" or 
+"multimapping_issue") to have our CT genes. Then the most relevant 
+transcript was validated manually (and check that there is a transcript 
+activated in testis and the same is activated in tumor).
+
+## CTexploreR VS CTdatabase
+
+```{r CTdatabase_ours}
+CTdatabase_ours <- Venn(list(CTdatabase = CTdatabase_cleaned$external_gene_name,
+                             CTexploreR = CT_genes$external_gene_name))
+plot(CTdatabase_ours)
+```
+
+
+
+
+## CTexploreR VS omics databases
+
+```{r upset_plot}
+core_ours <- Venn(list(Jamin = Jamin_core_CT$Gene, 
+                       CTexploreR = CT_genes$external_gene_name))
+
+Wang_ours <- Venn(list(Wang = Wang_CT$external_gene_name, 
+                       CTexploreR = CT_genes$external_gene_name))
+
+Carter_ours <- Venn(list(Carter_CT = Carter_CT$Gene_Name, 
+                         CTexploreR = CT_genes$external_gene_name))
+
+gene_list <- list(Jamin = Jamin_core_CT$Gene, 
+                  CTdatabase = CTdatabase_cleaned$external_gene_name, 
+                  CTatlas = Wang_CT$external_gene_name, 
+                  CTexploreR = CT_genes$external_gene_name, 
+                  Carter = Carter_CT$Gene_Name)
+
+upset_omics <- fromList(gene_list[-2])
+upset(upset_omics)
+```
+
+
+## Characterisation of differences with all databases
+
+```{r all_databases}
+common <- unique(c(core_ours@IntersectionSets[["11"]], 
+                   CTdatabase_ours@IntersectionSets[["11"]], 
+                   Wang_ours@IntersectionSets[["11"]], 
+                   Carter_ours@IntersectionSets[["11"]]))
+
+length(common)
+
+length(common)/dim(CT_genes)[1] * 100
+
+
+lost_list <- unique(c(core_ours@IntersectionSets[["10"]], 
+                 CTdatabase_ours@IntersectionSets[["10"]],
+                 Wang_ours@IntersectionSets[["10"]],
+                 Carter_ours@IntersectionSets[["10"]]))
+
+lost <- all_genes %>%
+  filter(external_gene_name %in% lost_list)
+
+not_specific <- filter(lost, is.na(testis_specificity))
+
+somatic_testis <- filter(lost, testis_cell_type %in% c( "Macrophage", 
+                                                        "Endothelial", "Myoid",
+                                                        "Sertoli", "Leydig"))
+
+somatic_tissue <- filter(lost, Higher_in_somatic_cell_type == TRUE)
+
+not_TCGA_activated <- filter(lost, TCGA_category != "activated" & 
+                               TCGA_category != "multimapping_issue")
+
+not_CCLE_activated <- filter(lost, CCLE_category  != "activated")
+
+transcript_prob <- lost %>% 
+  filter(testis_specificity == "testis_specific" |
+           testis_specificity == "testis_preferential") %>%
+  filter(TCGA_category == "activated" | TCGA_category == "multimapping_issue") %>% 
+  filter(CCLE_category == "activated") %>% 
+  dim()
+```
+
+We have lost `r length(lost_list)` genes in total. Among them, 
+`r dim(not_specific)[1]/length(lost_list)*100`% are not considered testis 
+specific, `r dim(somatic_testis)[1]/length(lost_list)*100`% are expressed in 
+testis somatic cells, `r dim(somatic_tissue)[1]/length(lost_list)*100`% are 
+expressed in somatic cells, `r dim(not_TCGA_activated)[1]/length(lost_list)*100`% 
+are not activated in TCGA samples, 
+`r dim(not_CCLE_activated)[1]/length(lost_list)*100`% are not activated in CCLE 
+cell lines and `r transcript_prob[1]/length(lost_list)*100`% is lost due to 
+transcripts problems.
+
+
+
+# CT genes characteristics
+
+
+```{r basic}
+table(CT_genes$testis_specificity)
+table(CT_genes$transcript_biotype)
+```
+
+Most genes are testis specific 
+(`r table(CT_genes$testis_specificity)[[2]]/dim(CT_genes)[1]*100`%).
+Most genes are mainly protein coding genes 
+(`r table(CT_genes$transcript_biotype)[[3]]/dim(CT_genes)[1]*100`%).
+
+
+## X chromosome and regulated by methylation
+
+In CTexploreR, genes have been characterised as regulated by methylation or not.
+
+
+```{r X_meth}
+table(CT_genes$X_linked)
+table(CT_genes$regulated_by_methylation)
+table(CT_genes$X_linked, CT_genes$regulated_by_methylation)
+```
+
+Genes are enriched on the X chromosome 
+(`r table(CT_genes$X_linked)[[2]]/dim(CT_genes)[1]*100`%). Also, 
+`r table(CT_genes$regulated_by_methylation)[[2]]` genes have been flagged as 
+regulated by methylation 
+(`r table(CT_genes$regulated_by_methylation)[[2]]/dim(CT_genes)[1]*100`%). 
+It is interesting to study the link between these two characteristics
+
+On the chromosome X, there is a clear enrichment of CT genes regulated by 
+methylation (83/93 chrX genes or 83/160 genes regulated by methylation).
+
+Let's check that with a statistical test, I here want to see if, on there is an 
+enrichment of genes regulated by methylation on the X chromosome. I need to do a
+Pearson Chi square test (to know if observed proportion differ from expected 
+proportion). It is a statistical method to determine if two categorical variables
+have a significant correlation between them. I can directly put a matrix 
+(my table) in the function
+
+```{r chisq}
+chisq.test(table(CT_genes$X_linked, CT_genes$regulated_by_methylation))
+```
+
+
+```{r X_meth_fig}
+CT_genes$chr_factor <- factor(CT_genes$chr,
+                       levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9",
+                                  "10", "11", "12", "13", "14", "15", "16", "17", 
+                                  "18", "19", "20", "21", "22", "X", "Y"))
+
+CT_genes %>% 
+  mutate(regulated_by_methylation = ifelse(regulated_by_methylation,
+                                           "Regulated by methylation",
+                                           "Not regulated by methylation")) %>% 
+  ggplot(aes(x = chr_factor, fill = testis_specificity, color = X_linked)) +
+  geom_bar(stat = 'count') +
+  scale_fill_manual(values = c("goldenrod1", "mediumpurple1")) +
+  scale_color_manual(values = c("royalblue1", "deeppink"), guide = "none") +
+  facet_wrap(~ regulated_by_methylation, ncol = 2) +
+  theme_bw() +
+  xlab("Chromosome") +
+  ylab("Number of genes") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = "top",
+        axis.title = element_text(size = 10, color = "gray10"))
+```
+
+There is indeed a significative link between regulation by methylation and being
+on the X chromosome. There is thus an enrichment of CT genes regulated by 
+methylation on the X chromosome (and inversely).
+
+
+
+## Tumour and methylation 
+
+Using CTexploreR functions, we can explore all CT genes or focus on some 
+potential targets.
+
+### All CT
+
+For these heatmaps, the code comes from the function but has been copies to add 
+some annotations.
+
+```{r common_annot}
+chr_mat <- as.matrix(CT_genes$X_linked)
+chr_mat <- ifelse(chr_mat == TRUE, "X-linked", "Not X")
+rownames(chr_mat) <- CT_genes$external_gene_name
+row_ha_chr <- rowAnnotation(chr_factor = chr_mat,
+                            annotation_legend_param = legends_param,
+                            simple_anno_size = unit(0.5, "cm"),
+                            col = list(chr_factor = chr_colors),
+                            annotation_name_gp = gpar(fontsize = 8),
+                            annotation_name_side = "top")
+
+
+
+regulation_mat <- as.matrix(CT_genes$regulated_by_methylation)
+regulation_mat <- ifelse(regulation_mat == TRUE, "Methylation",
+                         "Not methylation")
+rownames(regulation_mat) <- CT_genes$external_gene_name
+
+
+row_ha_reg <- rowAnnotation(regulation = regulation_mat,
+                            annotation_legend_param = legends_param,
+                            simple_anno_size = unit(0.5, "cm"),
+                            col = list(regulation = meth_colors),
+                            annotation_name_gp = gpar(fontsize = 8),
+                            annotation_name_side = "top")
+
+left_annot <- c(row_ha_chr, row_ha_reg, gap = unit(1, "mm"))
+
+split <- data.frame(CT_genes$regulated_by_methylation, CT_genes$X_linked)
+```
+
+```{r TCGA_heatmap, message = FALSE}
+database <- TCGA_TPM
+database$tumor <- sub(pattern = 'TCGA-', x = database$project_id, '')
+database$type <- "Tumor"
+database$type[database$shortLetterCode == "NT"] <- "Peritumoral"
+database <- database[, order(database$tumor, database$type)]
+
+genes <- CT_genes$external_gene_name
+database <- database[rowData(database)$external_gene_name %in% genes, ]
+database <- database[match(genes, rowData(database)$external_gene_name), ]
+
+column_ha_type <- HeatmapAnnotation(
+  Type = database$type,
+  border = TRUE,
+  col = list(Type = c("Tumor" = "salmon",
+                      "Peritumoral" = "mediumseagreen")),
+  annotation_name_gp = gpar(fontsize = 8),
+  annotation_legend_param = legends_param)
+
+column_ha_tumor <- HeatmapAnnotation(
+  Tumor = database$tumor,
+  border = TRUE,
+  col = list(Tumor = c("BRCA" = "midnightblue", "COAD" = "darkorchid2",
+                 "ESCA" = "gold", "HNSC" = "deeppink2",
+                 "LUAD" = "seagreen", "LUSC" = "seagreen3",
+                 "SKCM" = "red3")),
+  annotation_name_gp = gpar(fontsize = 8),
+  annotation_legend_param = legends_param)
+
+split_by <- factor(database$tumor)
+col_annot <- column_ha_tumor
+
+mat <- log1p(assay(database))
+rownames(mat) <- rowData(database)$external_gene_name
+
+
+Heatmap(mat[, , drop = FALSE],
+        name = "logTPM",
+        column_title = paste0("Expression in TCGA samples (all)"),
+        column_split = split_by,
+        row_split = split,
+        row_title_gp = gpar(fontsize = 0),
+        col = colorRamp2(seq(0, max(mat), length = 11),
+                         legend_colors),
+        clustering_method_rows = "ward.D",
+        clustering_method_columns = "ward.D",
+        cluster_rows = TRUE,
+        show_column_names = FALSE,
+        cluster_columns = TRUE,
+        show_column_dend = FALSE,
+        show_row_dend = FALSE,
+        row_names_gp = gpar(fontsize = 4),
+        heatmap_legend_param = legends_param,
+        top_annotation = col_annot,
+        left_annotation = left_annot)
+
+
+```
+
+
+```{r CCLE_heatmap}
+database <- CCLE_data
+database$type <- tolower(database$type)
+genes <- CT_genes$external_gene_name
+database <- database[rowData(database)$external_gene_name %in% genes, ]
+database <- database[match(genes, rowData(database)$external_gene_name), ]
+
+mat <- log1p(assay(database))
+rownames(mat) <- rowData(database)$external_gene_name
+
+df_col <- data.frame("cell_line" = colData(database)$cell_line_name,
+                     "type" = as.factor(colData(database)$type))
+rownames(df_col) <- rownames(colData(database))
+df_col <- df_col[order(df_col$type), ]
+
+column_ha_type <- HeatmapAnnotation(
+  type = df_col$type,
+  border = TRUE,
+  annotation_name_gp = gpar(fontsize = 8),
+  annotation_legend_param = legends_param,
+  col = list(type = c("lung" = "seagreen3", "skin" = "red3",
+                 "bile_duct" = "mediumpurple1", "bladder" = "mistyrose2",
+                 "colorectal" = "plum", "lymphoma" = "steelblue1",
+                 "uterine" = "darkorange4", "myeloma" = "turquoise3", 
+                 "kidney" = "thistle4",
+                 "pancreatic" = "darkmagenta", "brain" = "palegreen2",
+                 "gastric" = "wheat3", "breast" = "midnightblue",
+                 "bone" = "sienna1", "head_and_neck" = "deeppink2",
+                 "ovarian" = "tan3", "sarcoma" = "lightcoral",
+                 "leukemia" = "steelblue4", "esophageal"= "khaki",
+                 "neuroblastoma" = "olivedrab1")))
+
+
+
+Heatmap(mat[, rownames(df_col), drop = FALSE],
+        name = "logTPM",
+        column_title = "Gene Expression in tumor cell lines (CCLE)",
+        column_split = factor(df_col$type),
+        row_split = split,
+        row_title_gp = gpar(fontsize = 0),
+        col = colorRamp2(seq(0, max(mat), length = 11),
+                          legend_colors),
+        clustering_method_rows = "ward.D",
+        clustering_method_columns = "ward.D",
+        cluster_rows = TRUE,
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        cluster_columns = TRUE,
+        show_column_dend = FALSE,
+        row_names_gp = gpar(fontsize = 4),
+        heatmap_legend_param = legends_param,
+        top_annotation = c(column_ha_type),
+        left_annotation = left_annot)
+```
+
+```{r all_meth}
+genes <- CT_genes$external_gene_name
+database <- CT_mean_methylation_in_tissues[rownames(CT_mean_methylation_in_tissues) %in% genes]
+
+mat <- na.omit(assay(database))
+clustering_option <- TRUE
+
+row_ha_chr_meth <- rowAnnotation(chr = chr_mat[rownames(mat),],
+                            annotation_legend_param = legends_param,
+                            simple_anno_size = unit(0.5, "cm"),
+                            col = list(chr = chr_colors),
+                            annotation_name_gp = gpar(fontsize = 8),
+                            annotation_name_side = "top")
+
+
+row_ha_reg_meth <- rowAnnotation(regulation = regulation_mat[rownames(mat),],
+                            annotation_legend_param = legends_param,
+                            simple_anno_size = unit(0.5, "cm"),
+                            col = list(regulation = meth_colors),
+                            annotation_name_gp = gpar(fontsize = 8),
+                            annotation_name_side = "top")
+
+left_annot_meth <- c(row_ha_chr_meth, row_ha_reg_meth, gap = unit(1, "mm"))
+
+split_meth <- data.frame(filter(CT_genes, external_gene_name %in% rownames(mat))$regulated_by_methylation, 
+                    filter(CT_genes, external_gene_name %in% rownames(mat))$X_linked)
+
+Heatmap(mat,
+        column_title = 'Promoter mean methylation level by tissue',
+        name = 'Meth',
+        col = colorRamp2(c(1:100),
+                         colorRampPalette(c("moccasin","dodgerblue4"))(100)),
+        na_col = "gray80",
+        cluster_rows = clustering_option,
+        cluster_columns = FALSE,
+        row_split = split_meth,
+        row_title_gp = gpar(fontsize = 0),
+        show_row_names = TRUE,
+        show_heatmap_legend = TRUE,
+        show_row_dend = FALSE,
+        row_names_gp = gpar(fontsize = 3),
+        column_names_gp = gpar(fontsize = 8),
+        column_names_side = "bottom",
+        row_names_side = "right",
+        left_annotation = left_annot_meth)
+
+```
+
+### MAGE genes
+
+```{r MAGE_TCGA}
+MAGE_genes <- filter(CT_genes, family == "MAGE")$external_gene_name
+
+TCGA_expression(tumor = "all", 
+                genes = MAGE_genes,
+                units = "log_TPM")
+
+CCLE_expression(genes = MAGE_genes,
+                 type = c("lung", "skin", "bile_duct", "bladder", 
+                          "colorectal", "lymphoma", "uterine",
+                          "myeloma", "kidney", "pancreatic", "brain", 
+                          "gastric", "breast", "bone", "head_and_neck", 
+                          "ovarian", "sarcoma", "leukemia", "esophageal",
+                          "neuroblastoma"), units = "log_TPM")
+
+
+normal_tissues_mean_methylation(MAGE_genes, na.omit = TRUE)
+
+```
+
+## Single Cell analysis : timing of expression
+
+In CTexploreR, we there is single cell data from the testis, we thus can 
+analyse CT genes expression during spermatogenesis. 
+
+There is only data for 251 of our 298 CT genes.
+
+NB : SSC, Spermatogonia and early spermatocytes are *premeiotic cells*. Late 
+spermatocytes (between both meiosis), round spermatid, elongated spermatid and 
+sperm are *postmeiotic cells*.
+
+```{r repartition_sc}
+genes_avail <- 
+  CT_genes$external_gene_name[CT_genes$external_gene_name %in% unique(rownames(testis_sce))]
+table(CT_genes$testis_cell_type)
+table(CT_genes$testis_cell_type)/length(genes_avail)*100
+```
+
+41% of genes are mainly expressed pre-meioticly.
+
+```{r sc_heatmap, message = FALSE}
+germ_cells <- c("SSC", "Spermatogonia", "Early_spermatocyte",
+                "Late_spermatocyte","Round_spermatid", "Elongated_spermatid",
+                "Sperm1", "Sperm2")
+somatic_cells <- c("Macrophage", "Endothelial", "Myoid", "Sertoli", "Leydig")
+
+testis_sce_CT <- testis_sce[genes_avail, ]
+  
+mat <- SingleCellExperiment::logcounts(testis_sce_CT)
+
+df_col <- data.frame(clusters = colData(testis_sce_CT)$clusters,
+                     type = colData(testis_sce_CT)$type,
+                     Donor = colData(testis_sce_CT)$Donor)
+rownames(df_col) <- colnames(testis_sce_CT)
+
+df_col <- df_col[order(df_col$type),]
+df_col$lineage <- "Germ cells"
+df_col$lineage[df_col$type %in% somatic_cells] <- "Somatic cells"
+    
+column_ha_type = HeatmapAnnotation(
+  type = df_col$type,
+  border = TRUE,
+  col = list(type = c("SSC" = "floralwhite", "Spermatogonia" = "moccasin",
+                   "Early_spermatocyte" = "gold", 
+                   "Late_spermatocyte" = "orange",
+                   "Round_spermatid" = "red2", 
+                   "Elongated_spermatid" = "darkred",
+                   "Sperm1" = "violet", "Sperm2" = "purple", 
+                   "Sertoli" = "gray", 
+                   "Leydig" = "cadetblue2", "Myoid" = "springgreen3", 
+                   "Macrophage" = "gray10",
+                   "Endothelial" = "steelblue")),
+  
+  annotation_name_gp = gpar(fontsize = 8),
+  annotation_legend_param = legends_param)
+    
+column_ha_lineage = HeatmapAnnotation(
+  lineage = df_col$lineage,
+  border = TRUE,
+  col = list(lineage = c("Germ cells" = "salmon", "Somatic cells" = "cyan4")),
+  annotation_name_gp = gpar(fontsize = 8),
+  annotation_legend_param = legends_param)
+
+scale_lims <- c(0, quantile(rowMax(mat), 0.75))
+top_annot <- c(column_ha_lineage, column_ha_type)
+
+# Until here is what's in the function, hereunder is my addition/change in Heatmap()
+
+CT_genes_avail <- filter(CT_genes, external_gene_name %in% genes_avail)
+
+chr_mat <- as.matrix(CT_genes_avail$X_linked)
+chr_mat <- ifelse(chr_mat == TRUE, "X-linked", "Not X")
+rownames(chr_mat) <- CT_genes_avail$external_gene_name
+row_ha_chr <- rowAnnotation(chr = chr_mat,
+                            annotation_legend_param = legends_param,
+                            simple_anno_size = unit(0.5, "cm"),
+                            col = list(chr = chr_colors),
+                            annotation_name_gp = gpar(fontsize = 8),
+                            annotation_name_side = "top")
+
+
+regulation_mat <- as.matrix(CT_genes_avail$regulated_by_methylation)
+regulation_mat <- ifelse(regulation_mat == TRUE, "Methylation",
+                         "Not methylation")
+rownames(regulation_mat) <- CT_genes_avail$external_gene_name
+
+
+row_ha_reg <- rowAnnotation(regulation = regulation_mat,
+                            annotation_legend_param = legends_param,
+                            simple_anno_size = unit(0.5, "cm"),
+                            col = list(regulation = meth_colors),
+                            annotation_name_gp = gpar(fontsize = 8),
+                            annotation_name_side = "top")
+
+left_annot <- c(row_ha_chr, row_ha_reg, gap = unit(1, "mm"))
+
+split <- data.frame(CT_genes_avail$regulated_by_methylation, CT_genes_avail$X_linked)
+    
+Heatmap(mat[genes_avail, rownames(df_col), drop = FALSE],
+        name = "logCounts",
+        column_title = "Expression in testis cells (scRNAseq)",
+        column_split = df_col$type,
+        row_split = split,
+        row_title_gp = gpar(fontsize = 0),
+        show_column_names = FALSE,
+        show_column_dend = FALSE,
+        clustering_method_rows = "ward.D",
+        clustering_method_columns = "ward.D",
+        cluster_rows = TRUE,
+        cluster_columns = FALSE,
+        show_row_dend = FALSE,
+        row_names_gp = gpar(fontsize = 4),
+        col = colorRamp2(seq(scale_lims[1], scale_lims[2], length = 11),                 
+                         legend_colors),
+        top_annotation = top_annot,
+        left_annotation = left_annot,
+        heatmap_legend_param = legends_param)
+
+
+```
+
+
+
+We used these data to determine in which testis cell type
+each gene is mostly expressed. 
+
+```{r main_cell_type_expression_barplot}
+CT_genes$main_cell_type_expression <- factor(CT_genes$testis_cell_type,
+                                                levels = c("SSC", 
+                                               "Spermatogonia", 
+                                               "Early_spermatocyte",
+                                               "Late_spermatocyte",
+                                               "Round_spermatid",
+                                               "Elongated_spermatid",
+                                               "Sperm1",
+                                               "Sperm2",
+                                               "Sertoli"))
+
+CT_genes %>% 
+  mutate(regulated_by_methylation = ifelse(regulated_by_methylation,
+                                           "Regulated by methylation",
+                                           "Not regulated by methylation")) %>%
+  filter(!is.na(testis_cell_type)) %>%
+  filter(main_cell_type_expression != "Sertoli") %>% 
+  ggplot(aes(x = chr, fill = main_cell_type_expression,
+             color = main_cell_type_expression)) +
+  scale_fill_manual(values = c("lightyellow2", "moccasin", "gold", "orange","red2",
+                               "darkred", "violet", "purple")) +
+  scale_color_manual(values = c("lightyellow3", "navajowhite2", "gold", "orange","red2",
+                               "darkred", "violet", "purple")) +
+  geom_bar(stat = 'count') +
+  facet_grid(main_cell_type_expression ~ regulated_by_methylation) +
+  xlab("Chromosome") +
+  ylab("Number of genes") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(color = "black", angle = 90, vjust = 0.5, size = 10),
+    axis.title = element_text(size = 10, color = "gray10"),
+    strip.text.y = element_blank()) 
+
+```
+
+14 genes are on the X chromosome but escape X chromosome inactivation and are
+activates post-meioticly.
+
+```{r escapees}
+CT_genes %>% 
+  filter(X_linked) %>% 
+  filter(testis_cell_type %in% c("Late_spermatocyte","Round_spermatid", 
+                                 "Elongated_spermatid", "Sperm1", "Sperm2"))
+
+```
+
+
+## Gene function
+
+```{r GO_ORA}
+
+msigdbr(species = "Homo sapiens" , category = "C5") %>% 
+  filter(gene_symbol %in% CT_genes$external_gene_name) %>% 
+  pull(gene_symbol) %>% 
+  unique() %>% 
+  length()
+
+msigdbr(species = "Homo sapiens" , category = "H") %>% 
+  filter(gene_symbol %in% CT_genes$external_gene_name) %>% 
+  pull(gene_symbol) %>% 
+  unique() %>% 
+  length()
+
+
+go_ora <- enrichGO(gene = CT_genes$ensembl_gene_id,
+                   keyType = "ENSEMBL",
+                   OrgDb = org.Hs.eg.db,
+                   ont = "all",
+                   readable = TRUE)
+as_tibble(go_ora)
+
+as_tibble(go_ora) %>% 
+  arrange(desc(Count)) %>% 
+  head(12) %>% 
+  mutate(Ratio = Count/183) %>% 
+  ggplot(aes(x = Ratio, y = Description, fill = Description)) +
+  geom_col() +
+  theme_bw() +
+  ylab("GO term") +
+  xlab("Gene Ratio") +
+  theme(axis.text.y = element_blank(),
+        legend.position = "none",
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size = 10, color = "gray10"))+ 
+  geom_text(aes(0, y = Description, label = Description),
+            hjust = 0,
+            nudge_x = 0.005,
+            colour = "floralwhite",
+            size = 4)
+
+
+```
+
+As we can see here, most of genes are indeed linked to functions from reproduction.
+I represented here the 12 categories with the most genes, all from biological 
+processes. However, they are enriched in 89 different GO terms.
+
+
+We've also added a column tumor suppressor and oncogene in CTexploreR. 
+These information come from Cancermine. 
+
+```{r C_TS}
+table(CT_genes$oncogene) 
+table(CT_genes$tumor_suppressor)
+
+table(CT_genes$oncogene, CT_genes$tumor_suppressor) 
+```
+
+
+
+
+# SessionInfo
+
+```{r}
+sessionInfo()
+```
+
