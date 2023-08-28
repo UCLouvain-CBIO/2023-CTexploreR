@@ -13,6 +13,7 @@ output:
 ---
 
 ```{r library, message = FALSE}
+.libPaths("/storage/research/dduv/cbio-lg/rlib/Bioc318/", include.site = FALSE)
 library(readr)
 library(CTexploreR)
 library(biomaRt)
@@ -802,40 +803,40 @@ reorganize_data_ensembl <- function(gene_name, data){
     column_to_rownames("age")
 }
 
-nonCT_per_gene_CD4_datasets <- bplapply(unique(nonCTmeth_inCD4$ensembl_gene_id),
-                                      reorganize_data_ensembl, data = nonCTmeth_inCD4)
-names(nonCT_per_gene_CD4_datasets) <- unique(nonCTmeth_inCD4$ensembl_gene_id)
+# nonCT_per_gene_CD4_datasets <- bplapply(unique(nonCTmeth_inCD4$ensembl_gene_id),
+#                                       reorganize_data_ensembl, data = nonCTmeth_inCD4)
+# names(nonCT_per_gene_CD4_datasets) <- unique(nonCTmeth_inCD4$ensembl_gene_id)
+# 
+# p <- rep(NA, length(nonCT_per_gene_CD4_datasets))
+# for(i in 1:length(nonCT_per_gene_CD4_datasets)) {
+#  p[i] <- nrow(nonCT_per_gene_CD4_datasets[[i]]) > 1 &
+#    is.data.frame(nonCT_per_gene_CD4_datasets[[i]])
+# }
+# nonCT_per_gene_CD4_datasets <- nonCT_per_gene_CD4_datasets[p]
+# 
+# k <- rep(NA, length(nonCT_per_gene_CD4_datasets))
+# for(i in 1:length(nonCT_per_gene_CD4_datasets)) {
+#   k[i] <- nrow(nonCT_per_gene_CD4_datasets[[i]]) == 2
+# }
+# 
+# for (gene in names(nonCT_per_gene_CD4_datasets[k])) {
+#   tmp <- rep(NA, ncol(nonCT_per_gene_CD4_datasets[[gene]]))
+#   nonCT_per_gene_CD4_datasets[[gene]] <- rbind(nonCT_per_gene_CD4_datasets[[gene]], tmp)
+#   rownames(nonCT_per_gene_CD4_datasets[[gene]])[3] <-
+#     c("newborn","middle_age", "centenarian")[(!c("newborn","middle_age","centenarian") %in%
+#                                                 rownames(nonCT_per_gene_CD4_datasets[[gene]]))]
+#   # naming the new row
+# }
+# 
+# for (gene in names(nonCT_per_gene_CD4_datasets)) {
+#   nonCT_per_gene_CD4_datasets[[gene]] <- arrange(nonCT_per_gene_CD4_datasets[[gene]],
+#                                               rownames(nonCT_per_gene_CD4_datasets[[gene]]))
+#   # Put rows in the right order
+# }
+# 
+# rm(p, i, k, tmp)
 
-p <- rep(NA, length(nonCT_per_gene_CD4_datasets))
-for(i in 1:length(nonCT_per_gene_CD4_datasets)) {
- p[i] <- nrow(nonCT_per_gene_CD4_datasets[[i]]) > 1 &
-   is.data.frame(nonCT_per_gene_CD4_datasets[[i]])
-}
-nonCT_per_gene_CD4_datasets <- nonCT_per_gene_CD4_datasets[p]
-
-k <- rep(NA, length(nonCT_per_gene_CD4_datasets))
-for(i in 1:length(nonCT_per_gene_CD4_datasets)) {
-  k[i] <- nrow(nonCT_per_gene_CD4_datasets[[i]]) == 2
-}
-
-for (gene in names(nonCT_per_gene_CD4_datasets[k])) {
-  tmp <- rep(NA, ncol(nonCT_per_gene_CD4_datasets[[gene]]))
-  nonCT_per_gene_CD4_datasets[[gene]] <- rbind(nonCT_per_gene_CD4_datasets[[gene]], tmp)
-  rownames(nonCT_per_gene_CD4_datasets[[gene]])[3] <-
-    c("newborn","middle_age", "centenarian")[(!c("newborn","middle_age","centenarian") %in%
-                                                rownames(nonCT_per_gene_CD4_datasets[[gene]]))]
-  # naming the new row
-}
-
-for (gene in names(nonCT_per_gene_CD4_datasets)) {
-  nonCT_per_gene_CD4_datasets[[gene]] <- arrange(nonCT_per_gene_CD4_datasets[[gene]],
-                                              rownames(nonCT_per_gene_CD4_datasets[[gene]]))
-  # Put rows in the right order
-}
-
-rm(p, i, k, tmp)
-
-# load("data_rmd/nonCT_per_gene_CD4_datasets.rda")
+load("data_rmd/nonCT_per_gene_CD4_datasets.rda")
 
 nonCT_meth_means <- sapply(nonCT_per_gene_CD4_datasets, rowMeans, na.rm = TRUE)
 nonCT_meth_means <- nonCT_meth_means %>%

@@ -16,6 +16,7 @@ output:
 
 
 ```{r library, message = FALSE}
+.libPaths("/storage/research/dduv/cbio-lg/rlib/Bioc318/", include.site = FALSE)
 library(readxl)
 library(readr)
 library(CTexploreR)
@@ -61,9 +62,9 @@ normal_tissues_multimapping_data <- CTdata::normal_tissues_multimapping_data()
 CCLE_data <- CTdata::CCLE_data()
 TCGA_TPM <- CTdata::TCGA_TPM()
 DAC_treated_cells_multimapping <- CTdata::DAC_treated_cells_multimapping()
-load("../CTdata/eh_data/testis_sce.rda") 
-load("../CTdata/eh_data/scRNAseq_HPA.rda")
-load("../CTdata/eh_data/CT_mean_methylation_in_tissues.rda")
+testis_sce <- CTdata::testis_sce()
+scRNAseq_HPA <- CTdata::scRNAseq_HPA()
+CT_mean_methylation_in_tissues <- CTdata::CT_mean_methylation_in_tissues()
 ```
 
 
