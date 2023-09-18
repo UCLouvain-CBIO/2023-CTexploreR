@@ -613,14 +613,7 @@ database <- database[, order(database$tumor, database$type)]
 genes <- CT_genes$external_gene_name
 database <- database[rowData(database)$external_gene_name %in% genes, ]
 database <- database[match(genes, rowData(database)$external_gene_name), ]
-
-column_ha_type <- HeatmapAnnotation(
-  Type = database$type,
-  border = TRUE,
-  col = list(Type = c("Tumor" = "salmon",
-                      "Peritumoral" = "mediumseagreen")),
-  annotation_name_gp = gpar(fontsize = 8),
-  annotation_legend_param = legends_param)
+database <- database[, database$type == "Tumor"]
 
 column_ha_tumor <- HeatmapAnnotation(
   Tumor = database$tumor,
