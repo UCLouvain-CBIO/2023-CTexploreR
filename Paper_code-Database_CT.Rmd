@@ -403,14 +403,42 @@ activated in testis and the same is activated in tumor).
 ```{r CTdatabase_ours}
 CTdatabase_ours <- Venn(list(CTdatabase = CTdatabase_cleaned$external_gene_name,
                              CTexploreR = CT_genes$external_gene_name))
-plot(CTdatabase_ours)
+gp <- VennThemes(compute.Venn(CTdatabase_ours))
+gp[["Face"]][["11"]]$fill <-  "mistyrose"
+gp[["Face"]][["01"]]$fill <-  "darkseagreen1"
+gp[["Face"]][["10"]]$fill <-  "lightsteelblue1"
+gp[["Set"]][["Set1"]]$col <-  "paleturquoise4"
+gp[["Set"]][["Set2"]]$col <-  "darkseagreen4"
+gp[["SetText"]][["Set1"]]$col <-  "paleturquoise4"
+gp[["SetText"]][["Set2"]]$col <-  "darkseagreen4"
+plot(CTdatabase_ours, gp = gp)
+
+```
+
+Lost genes analysis
+
+```{r CTdatabase_lost}
+CTdatabase_lost <- all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]])
+
+# 10 Genes are lost because not in any  database
+
+
+CTdatabase_lost[is.na(CTdatabase_lost$testis_specificity), ]$testis_specificity <- "not_specific"
+table(CTdatabase_lost$testis_specificity)
+
+table(CTdatabase_lost$testis_cell_type)
+
+table(CTdatabase_lost$Higher_in_somatic_cell_type)
+
+table(CTdatabase_lost$TCGA_category)
+
+table(CTdatabase_lost$CCLE_category)
 ```
 
 
 
-
 ## CTexploreR VS omics databases
-
 ```{r upset_plot}
 core_ours <- Venn(list(Jamin = Jamin_core_CT$Gene, 
                        CTexploreR = CT_genes$external_gene_name))
@@ -420,7 +448,6 @@ Wang_ours <- Venn(list(Wang = Wang_CT$external_gene_name,
 
 Carter_ours <- Venn(list(Carter_CT = Carter_CT$Gene_Name, 
                          CTexploreR = CT_genes$external_gene_name))
-
 gene_list <- list(Jamin = Jamin_core_CT$Gene, 
                   CTdatabase = CTdatabase_cleaned$external_gene_name, 
                   CTatlas = Wang_CT$external_gene_name, 
@@ -430,6 +457,61 @@ gene_list <- list(Jamin = Jamin_core_CT$Gene,
 upset_omics <- fromList(gene_list[-2])
 upset(upset_omics)
 ```
+
+Lost genes analysis
+
+```{r Jamin_lost}
+Jamin_lost <- all_genes %>%
+  filter(external_gene_name %in% core_ours@IntersectionSets[["10"]])
+
+Jamin_lost[is.na(Jamin_lost$testis_specificity), ]$testis_specificity <- "not_specific"
+table(Jamin_lost$testis_specificity)
+
+table(Jamin_lost$testis_cell_type)
+
+table(Jamin_lost$Higher_in_somatic_cell_type)
+
+table(Jamin_lost$TCGA_category)
+
+table(Jamin_lost$CCLE_category)
+```
+
+
+```{r Wang_lost}
+Wang_lost <- all_genes %>%
+  filter(external_gene_name %in% Wang_ours@IntersectionSets[["10"]])
+
+Wang_lost[is.na(Wang_lost$testis_specificity), ]$testis_specificity <- "not_specific"
+table(Wang_lost$testis_specificity)
+
+table(Wang_lost$testis_cell_type)
+
+table(Wang_lost$Higher_in_somatic_cell_type)
+
+table(Wang_lost$TCGA_category)
+
+table(Wang_lost$CCLE_category)
+
+```
+
+
+```{r Carter_lost}
+Carter_lost <- all_genes %>%
+  filter(external_gene_name %in% Carter_ours@IntersectionSets[["10"]])
+
+Carter_lost[is.na(Carter_lost$testis_specificity), ]$testis_specificity <- "not_specific"
+table(Carter_lost$testis_specificity)
+
+table(Carter_lost$testis_cell_type)
+
+table(Carter_lost$Higher_in_somatic_cell_type)
+
+table(Carter_lost$TCGA_category)
+
+table(Carter_lost$CCLE_category)
+```
+
+
 
 
 ## Characterisation of differences with all databases
@@ -455,16 +537,31 @@ lost <- all_genes %>%
 
 not_specific <- filter(lost, is.na(testis_specificity))
 
+GTEX_expression(not_specific$external_gene_name, units = "log_TPM")
+
 somatic_testis <- filter(lost, testis_cell_type %in% c( "Macrophage", 
                                                         "Endothelial", "Myoid",
                                                         "Sertoli", "Leydig"))
 
+testis_expression(somatic_testis$external_gene_name)
+
 somatic_tissue <- filter(lost, Higher_in_somatic_cell_type == TRUE)
+
+HPA_cell_type_expression(somatic_tissue$external_gene_name)
 
 not_TCGA_activated <- filter(lost, TCGA_category != "activated" & 
                                TCGA_category != "multimapping_issue")
 
+TCGA_expression(not_TCGA_activated$external_gene_name,
+                tumor = "all",
+                units = "log_TPM")
+
 not_CCLE_activated <- filter(lost, CCLE_category  != "activated")
+
+CCLE_expression(not_CCLE_activated$external_gene_name,
+                  type = c("lung", "skin", "colorectal",
+                           "gastric", "breast", "head_and_neck"),
+                units = "log_TPM")
 
 transcript_prob <- lost %>% 
   filter(testis_specificity == "testis_specific" |
