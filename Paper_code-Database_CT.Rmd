@@ -543,7 +543,7 @@ somatic_testis <- filter(lost, testis_cell_type %in% c( "Macrophage",
                                                         "Endothelial", "Myoid",
                                                         "Sertoli", "Leydig"))
 
-testis_expression(somatic_testis$external_gene_name)
+testis_expression(somatic_testis$external_gene_name, cells = "all")
 
 somatic_tissue <- filter(lost, Higher_in_somatic_cell_type == TRUE)
 
@@ -605,6 +605,7 @@ In CTexploreR, genes have been characterised as regulated by methylation or not.
 ```{r X_meth}
 table(CT_genes$X_linked)
 table(CT_genes$regulated_by_methylation)
+table(CT_genes$X_linked, CT_genes$testis_specificity)
 table(CT_genes$X_linked, CT_genes$regulated_by_methylation)
 ```
 
@@ -613,7 +614,7 @@ Genes are enriched on the X chromosome
 `r table(CT_genes$regulated_by_methylation)[[2]]` genes have been flagged as 
 regulated by methylation 
 (`r table(CT_genes$regulated_by_methylation)[[2]]/dim(CT_genes)[1]*100`%). 
-It is interesting to study the link between these two characteristics
+It is interesting to study the link between these two characteristics.
 
 On the chromosome X, there is a clear enrichment of CT genes regulated by 
 methylation (83/93 chrX genes or 83/160 genes regulated by methylation).
