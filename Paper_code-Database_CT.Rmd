@@ -1055,8 +1055,9 @@ CT_genes %>%
 
 ## Gene function
 
-```{r GO_ORA}
+All CT genes function
 
+```{r GO_ORA}
 msigdbr(species = "Homo sapiens" , category = "C5") %>% 
   filter(gene_symbol %in% CT_genes$external_gene_name) %>% 
   pull(gene_symbol) %>% 
@@ -1080,7 +1081,9 @@ as_tibble(go_ora)
 as_tibble(go_ora) %>% 
   arrange(desc(Count)) %>% 
   head(12) %>% 
-  mutate(Ratio = Count/183) %>% 
+  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/177,
+                           ONTOLOGY == "CC"~ Count/197,
+                           ONTOLOGY == "MF"~ Count/186)) %>% 
   ggplot(aes(x = Ratio, y = Description, fill = Description)) +
   geom_col() +
   theme_bw() +
@@ -1097,11 +1100,104 @@ as_tibble(go_ora) %>%
             size = 4)
 
 
+
+ora_to_plot <- as_tibble(simplify(go_ora)) 
+
+# Combine the two cilium movement from BP
+ora_to_plot[ora_to_plot$ID == "GO:0003341", "Count"] <- 
+  ora_to_plot[ora_to_plot$ID == "GO:0003341", "Count"] +
+  ora_to_plot[ora_to_plot$ID == "GO:0060294", "Count"]
+
+ora_to_plot <- ora_to_plot %>% 
+  arrange(desc(Count)) %>% 
+  head(11) %>% 
+  filter(ID != "GO:0060294") %>% 
+  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/177,
+                           ONTOLOGY == "CC"~ Count/197,
+                           ONTOLOGY == "MF"~ Count/186))
+  
+       
+ora_to_plot %>% 
+  ggplot(aes(x = Ratio, y = Description, fill = Description)) +
+  geom_col() +
+  theme_bw() +
+  ylab("GO term") +
+  xlab("Gene Ratio") +
+  theme(axis.text.y = element_blank(),
+        legend.position = "none",
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size = 10, color = "gray10"))+ 
+  geom_text(aes(0, y = Description, label = Description),
+            hjust = 0,
+            nudge_x = 0.005,
+            colour = "floralwhite",
+            size = 3.7)
 ```
 
 As we can see here, most of genes are indeed linked to functions from reproduction.
 I represented here the 12 categories with the most genes, all from biological 
 processes. However, they are enriched in 89 different GO terms.
+
+
+
+Is there a difference between meth reg or not ?
+
+```{r GO_ORA_meth}
+
+go_ora_meth <- enrichGO(gene = 
+                          filter(CT_genes, regulated_by_methylation)$ensembl_gene_id,
+                        keyType = "ENSEMBL",
+                        OrgDb = org.Hs.eg.db,
+                        ont = "all",
+                        readable = TRUE)
+go_ora_meth <- simplify(go_ora_meth)
+
+go_ora_not_meth <- enrichGO(gene = 
+                          filter(CT_genes, !regulated_by_methylation)$ensembl_gene_id,
+                        keyType = "ENSEMBL",
+                        OrgDb = org.Hs.eg.db,
+                        ont = "all",
+                        readable = TRUE)
+
+go_ora_not_meth <- simplify(go_ora_not_meth)
+
+go_ora_meth_plot <- as_tibble(go_ora_meth) %>% 
+  arrange(desc(Count)) %>% 
+  head(11) %>% 
+  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/101,
+                           ONTOLOGY == "MF"~ Count/107)) %>%  
+  mutate(regulation = "Methylation")
+
+go_ora_not_meth_plot <- as_tibble(go_ora_not_meth) %>% 
+  arrange(desc(Count)) %>% 
+  head(11) %>% 
+  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/76,
+                           ONTOLOGY == "CC"~ Count/93))%>%  
+  mutate(regulation = "Not methylation")
+
+
+rbind(go_ora_meth_plot, go_ora_not_meth_plot) %>% 
+  ggplot(aes(x = Ratio, y = Description, fill = Description)) +
+  geom_col() +
+  theme_bw() +
+  ylab("GO term") +
+  xlab("Gene Ratio") +
+  facet_wrap(~ regulation) + 
+  theme(legend.position = "none",
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_text(size = 6, color = "gray10"),
+        axis.title.x = element_text(size = 10, color = "gray10"),
+        axis.title.y = element_blank())+ 
+  geom_text(aes(0, y = Description, label = ID),
+            hjust = 0,
+            nudge_x = 0.005,
+            colour = "floralwhite",
+            size = 2)
+
+```
+
+
+
 
 
 We've also added a column tumor suppressor and oncogene in CTexploreR. 
