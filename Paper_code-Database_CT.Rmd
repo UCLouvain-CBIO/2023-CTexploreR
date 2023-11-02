@@ -16,7 +16,6 @@ output:
 
 
 ```{r library, message = FALSE}
-.libPaths("/storage/research/dduv/cbio-lg/rlib/Bioc318/", include.site = FALSE)
 library(readxl)
 library(readr)
 library(CTexploreR)
@@ -581,6 +580,18 @@ are not activated in TCGA samples,
 cell lines and `r transcript_prob[1]/length(lost_list)*100`% is lost due to 
 transcripts problems.
 
+What about new genes in CTexploreR
+
+```{r}
+new <- CT_genes %>% 
+  filter(!external_gene_name%in%common) %>% 
+  pull(external_gene_name)
+
+length(new)
+
+# Charles' idea
+# TCGA_expression(tumor = "all", genes = new, units = "log_TPM")
+```
 
 
 # CT genes characteristics
@@ -1143,7 +1154,6 @@ processes. However, they are enriched in 89 different GO terms.
 Is there a difference between meth reg or not ?
 
 ```{r GO_ORA_meth}
-
 go_ora_meth <- enrichGO(gene = 
                           filter(CT_genes, regulated_by_methylation)$ensembl_gene_id,
                         keyType = "ENSEMBL",
@@ -1151,6 +1161,7 @@ go_ora_meth <- enrichGO(gene =
                         ont = "all",
                         readable = TRUE)
 go_ora_meth <- simplify(go_ora_meth)
+
 
 go_ora_not_meth <- enrichGO(gene = 
                           filter(CT_genes, !regulated_by_methylation)$ensembl_gene_id,
@@ -1160,6 +1171,7 @@ go_ora_not_meth <- enrichGO(gene =
                         readable = TRUE)
 
 go_ora_not_meth <- simplify(go_ora_not_meth)
+as_tibble(go_ora_not_meth)
 
 go_ora_meth_plot <- as_tibble(go_ora_meth) %>% 
   arrange(desc(Count)) %>% 

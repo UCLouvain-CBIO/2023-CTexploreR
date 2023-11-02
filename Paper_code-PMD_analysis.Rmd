@@ -13,7 +13,6 @@ output:
 ---
 
 ```{r library, message = FALSE}
-.libPaths("/storage/research/dduv/cbio-lg/rlib/Bioc318/", include.site = FALSE)
 library(readr)
 library(CTexploreR)
 library(biomaRt)
