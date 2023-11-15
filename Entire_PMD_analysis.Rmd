@@ -23,7 +23,8 @@ library(patchwork)
 library(Biostrings)
 ```
 
-
+This should be completed using another model of senescene/immortalization by 
+confirming the difference between CTs and PMDs, and CTs and nonCT in PMDs.
 
 # Package application : What are the mechanisms involved in CT demethylation in cancer
 
