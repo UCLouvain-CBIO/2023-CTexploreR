@@ -1006,7 +1006,7 @@ It is clear that there is a TSPY cluster again.
 TSPY and SPANX genes are found reactivated/coactivated in different types of 
 tumours. Let's compare the bigger groups found in LUAD, LUSC and BRCA
 
-```{r upste_clusters}
+```{r upset_clusters}
 upset(fromList(list(LUSC = LUSC_cluster3,
                LUAD1 = LUAD_cluster3,
                LUAD2 = LUAD_cluster4,
@@ -1014,7 +1014,15 @@ upset(fromList(list(LUSC = LUSC_cluster3,
                BRCA2 = BRCA_cluster2)))
 ```
 
-There is quite a lot of similarities here between the clusters.
+There is quite a lot of similarities here between the clusters. Let's look at
+the expression in tumours.
+
+```{r TCGA_clusters}
+TCGA_expression(c(LUSC_cluster3, LUAD_cluster3, LUAD_cluster4, BRCA_cluster1,
+                  BRCA_cluster2),
+                tumor = "all", units = "log_TPM")
+```
+
 
 Let's have a look at the timings of expression. 
 
