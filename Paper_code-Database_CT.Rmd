@@ -582,7 +582,7 @@ transcripts problems.
 
 What about new genes in CTexploreR
 
-```{r, warning = FALSE}
+```{r new, warning = FALSE}
 new <- CT_genes %>% 
   filter(!external_gene_name%in%common)
 
@@ -605,8 +605,108 @@ methylation. CT45 are not that new.
 
 Expression in tumours doesn't strike that much. 
 
-# CT genes characteristics
 
+## Other databases : minor analysis
+
+There are ocassionnally other CT genes list that exist in litterature but there
+is not always details on the pipeline, the way it is maintained or handled. 
+There is usually a lack of structure. 
+
+### Bruggeman 2018
+
+They started with the fact that most CT genes have been identified using whole 
+testis, this thus don’t make them germline specific and diminishes their 
+interest as targets for cancer immunotherapy. Their aim was thus to identify 
+true germ-cell specific cancer genes. They thus used transcriptomes of specific 
+germ cell-types present in healthy human spermatogenesis and compared it to data
+from GTEx and the TCGA. This allowed them to identify 756 germ cell specific 
+genes that are widely expressed in cancer. They state that "they’re certain that
+their genes are true GC-genes". However, they don't validate the known 
+enrichment in CT genes as their genes are distributed evenly across all 
+chromosomes
+
+The human male germ cells transcriptome they use comes from tissue samples from 
+6 males, cell subtypes were isolated using a laser capture microdissection 
+before RNA sequencing. 
+
+Data was available through a web application that gives now an error, and is 
+also in an excel supplemental file. 
+
+```{r Bruggeman}
+Bruggeman_CT <- read_excel("data/Bruggeman_suppl_data.xlsx", skip = 1,
+                           sheet = "1D")
+
+GTEX_expression(Bruggeman_CT$Gene, units = "log_TPM")
+TCGA_expression(Bruggeman_CT$Gene, units = "log_TPM", tumor = "all")
+testis_expression(Bruggeman_CT$Gene, cells = "all")
+```
+
+76 out of the 756 gene names aren't found in GTEx, and our data. 
+
+GTEX expression : There is clearly a lack of testis specificty. Expression in 
+lymphocytes and fibroblasts is not surprising as they excluded it from their 
+analysis. 
+
+TCGA expression : Most genes seems to be expressed in all tumours, which is the 
+reflection of an overall expression and not an activation. 
+
+Testis cells expression : expression is indeed mainly in germ cells, even if 
+some genes are expressed in somatic cells. However, lots of genes are just not
+expressed in any of these cell types.
+
+```{r Bruggeman_ours}
+Bruggeman_ours <- Venn(list(Bruggeman = Bruggeman_CT$Gene,
+                            CTexploreR = CT_genes$external_gene_name))
+gp <- VennThemes(compute.Venn(Bruggeman_ours))
+gp[["Face"]][["11"]]$fill <-  "mistyrose"
+gp[["Face"]][["01"]]$fill <-  "darkseagreen1"
+gp[["Face"]][["10"]]$fill <-  "lightsteelblue1"
+gp[["Set"]][["Set1"]]$col <-  "paleturquoise4"
+gp[["Set"]][["Set2"]]$col <-  "darkseagreen4"
+gp[["SetText"]][["Set1"]]$col <-  "paleturquoise4"
+gp[["SetText"]][["Set2"]]$col <-  "darkseagreen4"
+plot(Bruggeman_ours, gp = gp)
+
+
+Bruggeman_others <- Venn(list(Bruggeman = Bruggeman_CT$Gene,
+                            Wang = Wang_CT$external_gene_name,
+                            CTdatabase = CTdatabase_cleaned$external_gene_name))
+plot(Bruggeman_others)
+```
+
+Despite the size of Bruggeman's list, there is a very small amount of genes
+in common with CTexploreR. This is not surprising seeing the patterns of 
+expression in normal and tumoral tissues above. I'll clarify the difference
+below. 
+
+I however manage to recreate the Venn diagram of their fig 2, with slight 
+differences probably due to the cleaning of gene names I have done in Wang and 
+CTdatabase but not in Bruggeman. 
+
+```{r Bruggeman_lost}
+Bruggeman_lost <- all_genes %>%
+  filter(external_gene_name %in% Bruggeman_ours@IntersectionSets[["10"]])
+# Missing the 76 genes
+
+Bruggeman_lost[is.na(Bruggeman_lost$testis_specificity), ]$testis_specificity <- "not_specific"
+table(Bruggeman_lost$testis_specificity)
+
+table(Bruggeman_lost$testis_cell_type)
+
+table(Bruggeman_lost$Higher_in_somatic_cell_type)
+
+table(Bruggeman_lost$TCGA_category)
+
+table(Bruggeman_lost$CCLE_category)
+```
+
+It is clear here that most genes are not testis specific. Even if they are 
+indeed mostly expressed in germ cells, they are not specific to it as they are 
+not testis specific. We can also see the small amount of genes activated in 
+TCGA samples and CCLE cell lines.
+
+
+# CT genes characteristics
 
 ```{r basic}
 table(CT_genes$testis_specificity)
