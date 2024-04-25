@@ -237,6 +237,7 @@ NA_nonPMD_GR <- windows_reads_PMD %>%
 ### CT regulated by methylation and PMD overlap
 
 ```{r CT_genes_prep}
+load("../CT_genes_latest_version.rda")
 CT_genes <- CT_genes %>% 
   mutate(start_prom = case_when(strand == 1 ~ transcription_start_site - 1000,
                                 strand == -1 ~ transcription_start_site - 500)) %>% 
@@ -416,19 +417,19 @@ hist(distrib_enriched,
      col="violetred1",
      border = "violetred3",
      breaks = 20,
-     main = paste0("Percentage of promoters in PMDs when randomly taking ",
+     main = paste0("Percentage of promoters in PMDs when randomly taking",
                    sum(table(CT_meth_regulated$PMD)), 
                    " tissue-specific 
 genes 1000 times (taking chromosome proportion into account)"),
      cex.main = 0.75,
      xlab = "Percentages",
      ylab = "Frequency",
-     xlim = c(20,60))
+     xlim = c(20,70))
 abline(v = PMD_perc, col = "slateblue1", lwd = 3)
-text(PMD_perc, 120, "CT genes regulated 
+text(PMD_perc, 75, "CT genes regulated 
 by methylation", col = "slateblue4", cex = 0.8)
 abline(v = CT_not_meth_reg_PMD_perc, col = "darkseagreen1", lwd = 3)
-text(CT_not_meth_reg_PMD_perc, 120, "CT genes not regulated 
+text(CT_not_meth_reg_PMD_perc, 75, "CT genes not regulated 
 by methylation", col = "darkseagreen", cex = 0.8)
 
 ```
@@ -804,7 +805,8 @@ reorganize_data_ensembl <- function(gene_name, data){
 }
 
 # nonCT_per_gene_CD4_datasets <- bplapply(unique(nonCTmeth_inCD4$ensembl_gene_id),
-#                                       reorganize_data_ensembl, data = nonCTmeth_inCD4)
+#                                       reorganize_data_ensembl, data = nonCTmeth_inCD4,
+#                                       BPPARAM = MulticoreParam(8L))
 # names(nonCT_per_gene_CD4_datasets) <- unique(nonCTmeth_inCD4$ensembl_gene_id)
 # 
 # p <- rep(NA, length(nonCT_per_gene_CD4_datasets))
@@ -820,6 +822,7 @@ reorganize_data_ensembl <- function(gene_name, data){
 # }
 # 
 # for (gene in names(nonCT_per_gene_CD4_datasets[k])) {
+#   print(gene)
 #   tmp <- rep(NA, ncol(nonCT_per_gene_CD4_datasets[[gene]]))
 #   nonCT_per_gene_CD4_datasets[[gene]] <- rbind(nonCT_per_gene_CD4_datasets[[gene]], tmp)
 #   rownames(nonCT_per_gene_CD4_datasets[[gene]])[3] <-
@@ -835,14 +838,15 @@ reorganize_data_ensembl <- function(gene_name, data){
 # }
 # 
 # rm(p, i, k, tmp)
+# save(nonCT_per_gene_CD4_datasets, 
+#      file = "data_rmd/nonCT_per_gene_CD4_datasets.rda")
 
 load("data_rmd/nonCT_per_gene_CD4_datasets.rda")
 
-nonCT_meth_means <- sapply(nonCT_per_gene_CD4_datasets, rowMeans, na.rm = TRUE)
-nonCT_meth_means <- nonCT_meth_means %>%
-  t() %>%
-  as.data.frame() %>%
-  rownames_to_column("ensembl_gene_id")
+nonCT_meth_means_tmp <- sapply(nonCT_per_gene_CD4_datasets, rowMeans, na.rm = TRUE)
+nonCT_meth_means <- Reduce(rbind, nonCT_meth_means_tmp) %>% 
+  data.frame()
+nonCT_meth_means$ensembl_gene_id <- names(nonCT_meth_means_tmp)
 
 nonCT_meth_means$middle_age[is.na(nonCT_meth_means$middle_age)] <- NA
 ```

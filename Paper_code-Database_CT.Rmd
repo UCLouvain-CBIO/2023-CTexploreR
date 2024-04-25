@@ -68,6 +68,9 @@ DAC_treated_cells_multimapping <- CTdata::DAC_treated_cells_multimapping()
 testis_sce <- CTdata::testis_sce()
 scRNAseq_HPA <- CTdata::scRNAseq_HPA()
 CT_mean_methylation_in_tissues <- CTdata::CT_mean_methylation_in_tissues()
+####
+load("../CT_genes_latest_version.rda")
+CT_genes$testis_specificity <- "testis_specific"
 ```
 
 
@@ -321,8 +324,8 @@ Bruggeman_CT <- rbind(Bruggeman_official_names, Bruggeman_synonym)
 
 lost <- Bruggeman_data[which(!Bruggeman_data$Gene %in% c(Bruggeman_CT$Gene_Name)), "Gene"]
 colnames(lost) <- "external_gene_name"
-lost$Gene_Name <- rep(NA, 15)
-lost$external_synonym <- rep(NA, 15)
+lost$Gene_Name <- rep(NA, nrow(lost))
+lost$external_synonym <- rep(NA, nrow(lost))
 
 lost[lost$external_gene_name == "C21orf59", "Gene_Name"] <- "CFAP298"
 lost[lost$external_gene_name == "C11orf57", "Gene_Name"] <- "NKAPD1"
@@ -332,6 +335,7 @@ lost[lost$external_gene_name == "RPL19P12", "Gene_Name"] <- "RPL19P12"
 lost[lost$external_gene_name == "C16orf59", "Gene_Name"] <- "TEDC2"
 lost[lost$external_gene_name == "TTTY15", "Gene_Name"] <- "USP9Y"
 lost[lost$external_gene_name == "C17orf53", "Gene_Name"] <- "HROB"
+lost[lost$external_gene_name == "C1orf112", "Gene_Name"] <- "FIRRM"
 lost[lost$external_gene_name == "C12orf66", "Gene_Name"] <- "KICS2"
 lost[lost$external_gene_name == "C9orf84", "Gene_Name"] <- "SHOC1"
 lost[lost$external_gene_name == "C10orf25", "Gene_Name"] <- "ZNF22-AS1"
@@ -354,7 +358,7 @@ missing_Bruggeman <- c("BMS1P4", "ADAM6", "ANXA2P3", "ARHGAP11B", "DPY19L2P2",
                        "CCDC173", "KIAA1524", "WDR78", "LINC00476", "LYRM5", 
                        "HILS1", "CASC5", "KIAA1919", "CTAGE5", "FAM188B", 
                        "TMEM194B", "FAM122C", "PPP1R2P3", "KIAA0391", "SGOL2", 
-                       "FAM19A3", "ZNF788", "RPL19P12")
+                       "FAM19A3", "ZNF788", "RPL19P12", "FIRRM")
 
 external_names_to_keep <- gene_synonym %>%
    filter(external_synonym %in% missing_Bruggeman) %>%
@@ -495,13 +499,18 @@ plot(CTdatabase_ours, gp = gp)
 
 ```
 
+We find `r length(CTdatabase_ours@IntersectionSets[["11"]])/nrow(CTdatabase_cleaned)*100`
+% of CTdatabase in CTexploreR, which is `r length(CTdatabase_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+
 Lost genes analysis
 
 ```{r CTdatabase_lost}
 CTdatabase_lost <- all_genes %>%
   filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]])
 
-# 10 Genes are lost because not in any database
+# 12 Genes are lost because not in any database
 
 
 CTdatabase_lost[is.na(CTdatabase_lost$testis_specificity), ]$testis_specificity <- "not_specific"
@@ -514,11 +523,19 @@ table(CTdatabase_lost$Higher_in_somatic_cell_type)
 table(CTdatabase_lost$TCGA_category)
 
 table(CTdatabase_lost$CCLE_category)
+
+table(CTdatabase_lost$TCGA_category, CTdatabase_lost$CCLE_category)
+
 ```
 
+`r (nrow(CTdatabase_lost) - table(CTdatabase_lost$testis_specificity)[["testis_specific"]])/nrow(CTdatabase_lost)*100`% of 
+these genes are not testis specific. 
 
+`r (nrow(CTdatabase_lost) - table(CTdatabase_lost$TCGA_category, CTdatabase_lost$CCLE_category)["activated", "activated"])/nrow(CTdatabase_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
 
 ## CTexploreR VS omics databases
+
 ```{r upset_plot}
 core_ours <- Venn(list(Jamin = Jamin_core_CT$Gene, 
                        CTexploreR = CT_genes$external_gene_name))
@@ -542,6 +559,8 @@ upset_omics <- fromList(gene_list)
 upset(upset_omics)
 ```
 
+4 in all, 59 in at least 3 databases
+
 Lost genes analysis
 
 ```{r Jamin_lost}
@@ -561,6 +580,16 @@ table(Jamin_lost$TCGA_category)
 
 table(Jamin_lost$CCLE_category)
 ```
+
+We find `r length(core_ours@IntersectionSets[["11"]])/nrow(Jamin_core_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(core_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+`r (nrow(Jamin_lost) - table(Jamin_lost$testis_specificity)[["testis_specific"]])/nrow(Jamin_lost)*100`% of 
+these genes are not testis specific. 
+
+`r (nrow(Jamin_lost) - table(Jamin_lost$TCGA_category, Jamin_lost$CCLE_category)["activated", "activated"])/nrow(Jamin_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
 
 
 ```{r Wang_lost}
@@ -583,6 +612,15 @@ table(Wang_lost$CCLE_category)
 
 ```
 
+We find `r length(Wang_ours@IntersectionSets[["11"]])/nrow(Wang_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(Wang_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+`r (nrow(Wang_lost) - table(Wang_lost$testis_specificity)[["testis_specific"]])/nrow(Wang_lost)*100`% of 
+these genes are not testis specific. 
+
+`r (nrow(Wang_lost) - table(Wang_lost$TCGA_category, Wang_lost$CCLE_category)["activated", "activated"])/nrow(Wang_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
 
 ```{r Carter_lost}
 plot(Carter_ours, gp = gp)
@@ -602,6 +640,15 @@ table(Carter_lost$TCGA_category)
 table(Carter_lost$CCLE_category)
 ```
 
+We find `r length(Carter_ours@IntersectionSets[["11"]])/nrow(Carter_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(Carter_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+`r (nrow(Carter_lost) - table(Carter_lost$testis_specificity)[["testis_specific"]])/nrow(Carter_lost)*100`% of 
+these genes are not testis specific. 
+
+`r (nrow(Carter_lost) - table(Carter_lost$TCGA_category, Carter_lost$CCLE_category)["activated", "activated"])/nrow(Carter_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
 
 ```{r Bruggeman_lost}
 plot(Bruggeman_ours, gp = gp)
@@ -621,7 +668,15 @@ table(Bruggeman_lost$TCGA_category)
 table(Bruggeman_lost$CCLE_category)
 ```
 
+We find `r length(Bruggeman_ours@IntersectionSets[["11"]])/nrow(Bruggeman_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(Bruggeman_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
 
+`r (nrow(Bruggeman_lost) - table(Bruggeman_lost$testis_specificity)[["testis_specific"]])/nrow(Bruggeman_lost)*100`% of 
+these genes are not testis specific. 
+
+`r (nrow(Bruggeman_lost) - table(Bruggeman_lost$TCGA_category, Bruggeman_lost$CCLE_category)["activated", "activated"])/nrow(Bruggeman_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
 
 ## Characterisation of differences with all databases
 
@@ -727,9 +782,9 @@ table(CT_genes$transcript_biotype)
 ```
 
 Most genes are testis specific 
-(`r table(CT_genes$testis_specificity)[[2]]/dim(CT_genes)[1]*100`%).
+(`r table(CT_genes$testis_specificity)[["testis_specific"]]/dim(CT_genes)[1]*100`%).
 Most genes are mainly protein coding genes 
-(`r table(CT_genes$transcript_biotype)[[3]]/dim(CT_genes)[1]*100`%).
+(`r table(CT_genes$transcript_biotype)["protein_coding"]/dim(CT_genes)[1]*100`%).
 
 
 ## X chromosome and regulated by methylation
@@ -752,7 +807,9 @@ regulated by methylation
 It is interesting to study the link between these two characteristics.
 
 On the chromosome X, there is a clear enrichment of CT genes regulated by 
-methylation (83/93 chrX genes or 83/160 genes regulated by methylation).
+methylation (`r table(CT_genes$X_linked, CT_genes$regulated_by_methylation)[2, 2]`/`r table(CT_genes$X_linked)[[2]]` 
+chrX genes or `r table(CT_genes$X_linked, CT_genes$regulated_by_methylation)[2, 2]`/`r table(CT_genes$regulated_by_methylation)[[2]]` 
+genes regulated by methylation).
 
 Let's check that with a statistical test, I here want to see if, on there is an 
 enrichment of genes regulated by methylation on the X chromosome. I need to do a
@@ -776,16 +833,15 @@ CT_genes %>%
   mutate(regulated_by_methylation = ifelse(regulated_by_methylation,
                                            "Regulated by methylation",
                                            "Not regulated by methylation")) %>% 
-  ggplot(aes(x = chr_factor, fill = testis_specificity, color = X_linked)) +
+  ggplot(aes(x = chr_factor, fill = X_linked)) +
   geom_bar(stat = 'count') +
-  scale_fill_manual(values = c("goldenrod1", "mediumpurple1")) +
-  scale_color_manual(values = c("royalblue1", "deeppink"), guide = "none") +
+  scale_fill_manual(values = c("royalblue1", "deeppink")) +
   facet_wrap(~ regulated_by_methylation, ncol = 2) +
   theme_bw() +
   xlab("Chromosome") +
   ylab("Number of genes") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1),
-        legend.position = "top",
+        legend.position = "none",
         axis.title = element_text(size = 10, color = "gray10"))
 ```
 
@@ -994,165 +1050,6 @@ Heatmap(mat,
 
 ```
 
-### Coactivation in tumours
-
-We know that CT genes that are regulated by methylation are activated in 
-tumours due to methylation. However, those that are not it is more blurry. It 
-is interesting to look at their expression to see if there are groups of genes 
-that are activated together in tumours which would suggest another activation :
-a transcription factor ? a gene expresion program from meiosis ? timing of 
-expression ? function ? 
-
-```{r not_reg}
-not_regulated <- filter(CT_genes, !regulated_by_methylation)$external_gene_name
-```
-
-
-
-As they can blur the clustering, I sometimes remove genes that are in the 
-background and  those that are expressed a lot. 
-
-- BRCA : 
-
-```{r BRCA}
-TCGA_expression(filter(CT_genes, !regulated_by_methylation)$external_gene_name,
-                tumor = "BRCA", units = "log_TPM")
-# Removing genes to see clearer
-
-BRCA_genes <- rowData(TCGA_TPM) %>% 
-  as_tibble() %>% 
-  filter(external_gene_name %in% not_regulated) %>% 
-  filter(percent_pos_BRCA > 0.01 & percent_pos_BRCA < 30) %>% 
-  pull(external_gene_name)
-
-
-BRCA_genes_ordered <- 
-  BRCA_genes[row_order(draw(TCGA_expression(BRCA_genes, tumor = "BRCA", 
-                                            units = "log_TPM")))]
-
-BRCA_cluster1 <- BRCA_genes_ordered[c(which(BRCA_genes_ordered == "AKAP14"):
-                       which(BRCA_genes_ordered == "C11orf97"))]
-BRCA_cluster2 <- BRCA_genes_ordered[c(which(BRCA_genes_ordered == "GTF2I-AS1"):
-                       which(BRCA_genes_ordered == "SLIT3-AS1"))]
-
-
-```
-
-We can see two small clusters. 
-
-- LUAD : 
-
-```{r LUAD}
-TCGA_expression(filter(CT_genes, !regulated_by_methylation)$external_gene_name,
-                tumor = "LUAD", units = "log_TPM")
-# Removing genes to see clearer
-LUAD_genes <- rowData(TCGA_TPM) %>% 
-  as_tibble() %>% 
-  filter(external_gene_name %in% not_regulated) %>% 
-  filter(percent_pos_LUAD > 0.01 & percent_pos_LUAD < 30) %>% 
-  pull(external_gene_name)
-
-
-LUAD_genes_ordered <- 
-  LUAD_genes[row_order(draw(TCGA_expression(LUAD_genes, tumor = "LUAD", 
-                                            units = "log_TPM")))]
-
-LUAD_cluster1 <- c("TSPY1", "TSPY2")
-LUAD_cluster2 <- c("SPANXC", "SPANXB1",  "SPANXD")
-LUAD_cluster3 <- LUAD_genes_ordered[c(1:22)]
-LUAD_cluster4 <- LUAD_genes_ordered[c(which(LUAD_genes_ordered == "GTF2I-AS1"):
-                       which(LUAD_genes_ordered == "SLIT3-AS1"))]
-```
-
-22 first genes are clearly quite clustering, there is also a small SPANX cluster,
-a small TSPY cluster ans a bigger one around the middle of the graph.
-
-- LUSC : 
-
-```{r LUSC}
-TCGA_expression(filter(CT_genes, !regulated_by_methylation)$external_gene_name,
-                tumor = "LUSC", units = "log_TPM")
-# Removing genes to see clearer
-
-LUSC_genes <- rowData(TCGA_TPM) %>% 
-  as_tibble() %>% 
-  filter(external_gene_name %in% not_regulated) %>% 
-  filter(percent_pos_LUSC > 0.01 & percent_pos_LUSC < 30) %>% 
-  pull(external_gene_name)
-
-LUSC_genes_ordered <- 
-  LUSC_genes[row_order(draw(TCGA_expression(LUSC_genes, tumor = "LUSC", 
-                                            units = "log_TPM")))]
-
-LUSC_cluster1 <- c("TSPY1", "TSPY2",  "TSPY9", "TSPY10")
-LUSC_cluster2 <- c("SPANXC", "SPANXB1",  "SPANXD")
-LUSC_cluster3 <- LUSC_genes_ordered[c(1:15)]
-
-```
-
-We can see a cluster at the top and two smaller ones corresponding to SPANX and
-TSPY genes. As well as quite a big cluster with the 15 first lines
-
-
-- SKCM :
-
-```{r SKCM}
-SKCM_genes <- rowData(TCGA_TPM) %>% 
-  as_tibble() %>% 
-  filter(external_gene_name %in% not_regulated) %>% 
-  filter(percent_pos_SKCM > 0.01 & percent_pos_SKCM < 30) %>% 
-  pull(external_gene_name)
-
-TCGA_expression(filter(CT_genes, !regulated_by_methylation)$external_gene_name,
-                tumor = "SKCM", units = "log_TPM")
-# Lots of genes activated almost everywhere or nowhere that can mask clusters
-TCGA_expression(SKCM_genes,
-                tumor = "SKCM", units = "log_TPM")
-
-SKCM_cluster <- c("TSPY1", "TSPY2", "TSPY3", "TSPY9", "TSPY10")
-```
-
-It is clear that there is a TSPY cluster again.
-
-- Comparison
-
-TSPY and SPANX genes are found reactivated/coactivated in different types of 
-tumours. Let's compare the bigger groups found in LUAD, LUSC and BRCA
-
-```{r upset_clusters}
-upset(fromList(list(LUSC = LUSC_cluster3,
-               LUAD1 = LUAD_cluster3,
-               LUAD2 = LUAD_cluster4,
-               BRCA1 = BRCA_cluster1,
-               BRCA2 = BRCA_cluster2)))
-```
-
-There is quite a lot of similarities here between the clusters. Let's look at
-the expression in tumours.
-
-```{r TCGA_clusters}
-TCGA_expression(c(LUSC_cluster3, LUAD_cluster3, LUAD_cluster4, BRCA_cluster1,
-                  BRCA_cluster2),
-                tumor = "all", units = "log_TPM")
-```
-
-
-Let's have a look at the timings of expression. 
-
-```{r timing_cluster, message = FALSE}
-testis_expression(c("TSPY1", "TSPY2", "TSPY3", "TSPY9", "TSPY10"), 
-                  cells = "all")
-testis_expression(c("SPANXC", "SPANXB1",  "SPANXD"), 
-                  cells = "all")
-testis_expression(LUSC_cluster3, cells = "all")
-testis_expression(LUAD_cluster3, cells = "all")
-testis_expression(LUAD_cluster4, cells = "all")
-testis_expression(BRCA_cluster1, cells = "all")
-testis_expression(BRCA_cluster2, cells = "all")
-```
-
-They mainly seem to, in a cluster, be expressed at the same time. 
-
 
 ### MAGE genes
 
@@ -1181,7 +1078,7 @@ normal_tissues_mean_methylation(MAGE_genes, na.omit = TRUE)
 In CTexploreR, we there is single cell data from the testis, we thus can 
 analyse CT genes expression during spermatogenesis. 
 
-There is only data for 251 of our 298 CT genes.
+There is only data for `r sum(CT_genes$external_gene_name %in% unique(rownames(testis_sce)))` of our `r nrow(CT_genes)` CT genes.
 
 NB : SSC, Spermatogonia and early spermatocytes are *premeiotic cells*. Late 
 spermatocytes (between both meiosis), round spermatid, elongated spermatid and 
@@ -1194,7 +1091,8 @@ table(CT_genes$testis_cell_type)
 table(CT_genes$testis_cell_type)/length(genes_avail)*100
 ```
 
-41% of genes are mainly expressed pre-meioticly.
+`r sum(table(CT_genes$testis_cell_type)[c("Early_spermatocyte", "Spermatogonia", "SSC")])/length(genes_avail)*100`
+% of genes are mainly expressed pre-meioticly.
 
 ```{r sc_heatmap, message = FALSE}
 germ_cells <- c("SSC", "Spermatogonia", "Early_spermatocyte",
@@ -1297,8 +1195,6 @@ Heatmap(mat[genes_avail, rownames(df_col), drop = FALSE],
 
 ```
 
-
-
 We used these data to determine in which testis cell type
 each gene is mostly expressed. 
 
@@ -1338,9 +1234,6 @@ CT_genes %>%
 
 ```
 
-14 genes are on the X chromosome but escape X chromosome inactivation and are
-activates post-meioticly.
-
 ```{r escapees}
 CT_genes %>% 
   filter(X_linked) %>% 
@@ -1348,6 +1241,9 @@ CT_genes %>%
                                  "Elongated_spermatid", "Sperm1", "Sperm2"))
 
 ```
+
+These genes are on the X chromosome but escape X chromosome inactivation and are
+activates post-meioticly.
 
 
 ## Gene function
@@ -1400,17 +1296,10 @@ as_tibble(go_ora) %>%
 
 ora_to_plot <- as_tibble(simplify(go_ora)) 
 
-# Combine the two cilium movement from BP
-ora_to_plot[ora_to_plot$ID == "GO:0003341", "Count"] <- 
-  ora_to_plot[ora_to_plot$ID == "GO:0003341", "Count"] +
-  ora_to_plot[ora_to_plot$ID == "GO:0060294", "Count"]
-
 ora_to_plot <- ora_to_plot %>% 
   arrange(desc(Count)) %>% 
-  head(11) %>% 
-  filter(ID != "GO:0060294") %>% 
-  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/177,
-                           ONTOLOGY == "CC"~ Count/197,
+  head(9) %>% 
+  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/102,
                            ONTOLOGY == "MF"~ Count/186))
   
        
@@ -1433,7 +1322,7 @@ ora_to_plot %>%
 
 As we can see here, most of genes are indeed linked to functions from reproduction.
 I represented here the 12 categories with the most genes, all from biological 
-processes. However, they are enriched in 89 different GO terms.
+processes. However, they are enriched in `r nrow(as_tibble(go_ora))` different GO terms.
 
 
 
@@ -1447,6 +1336,7 @@ go_ora_meth <- enrichGO(gene =
                         ont = "all",
                         readable = TRUE)
 go_ora_meth <- simplify(go_ora_meth)
+as_tibble(go_ora_meth)
 
 
 go_ora_not_meth <- enrichGO(gene = 
@@ -1455,22 +1345,22 @@ go_ora_not_meth <- enrichGO(gene =
                         OrgDb = org.Hs.eg.db,
                         ont = "all",
                         readable = TRUE)
-
 go_ora_not_meth <- simplify(go_ora_not_meth)
 as_tibble(go_ora_not_meth)
 
 go_ora_meth_plot <- as_tibble(go_ora_meth) %>% 
   arrange(desc(Count)) %>% 
-  head(11) %>% 
-  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/101,
-                           ONTOLOGY == "MF"~ Count/107)) %>%  
+  head(10) %>% 
+  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/73,
+                           ONTOLOGY == "MF"~ Count/80,
+                           ONTOLOGY == "CC"~ Count/78)) %>%  
   mutate(regulation = "Methylation")
 
 go_ora_not_meth_plot <- as_tibble(go_ora_not_meth) %>% 
   arrange(desc(Count)) %>% 
-  head(11) %>% 
-  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/76,
-                           ONTOLOGY == "CC"~ Count/93))%>%  
+  head(8) %>% 
+  mutate(Ratio = case_when(ONTOLOGY == "BP"~ Count/29,
+                           ONTOLOGY == "MF"~ Count/30))%>%  
   mutate(regulation = "Not methylation")
 
 
