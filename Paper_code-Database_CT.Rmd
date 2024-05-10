@@ -60,17 +60,22 @@ gene_synonym <- as_tibble(getBM(attributes = attributes_vector, mart = ensembl))
 
 
 ```{r load_data, warning=FALSE, message=FALSE}
-GTEX_data <- CTdata::GTEX_data()
-normal_tissues_multimapping_data <- CTdata::normal_tissues_multimapping_data()
-CCLE_data <- CTdata::CCLE_data()
-TCGA_TPM <- CTdata::TCGA_TPM()
-DAC_treated_cells_multimapping <- CTdata::DAC_treated_cells_multimapping()
-testis_sce <- CTdata::testis_sce()
-scRNAseq_HPA <- CTdata::scRNAseq_HPA()
-CT_mean_methylation_in_tissues <- CTdata::CT_mean_methylation_in_tissues()
+# CCLE_data <- CTdata::CCLE_data()
+# TCGA_TPM <- CTdata::TCGA_TPM()
+# testis_sce <- CTdata::testis_sce()
 ####
-load("../CT_genes_latest_version.rda")
-CT_genes$testis_specificity <- "testis_specific"
+
+load("../CTdata/eh_data/CCLE_data.rda")
+load("../CTdata/eh_data/TCGA_TPM.rda")
+load("../CTdata/eh_data/testis_sce.rda")
+load("../CTdata/eh_data/mean_methylation_in_tissues.rda")
+
+load("../CTdata/eh_data/all_genes.rda")
+load("../CTdata/eh_data/HPA_cell_type_specificities.rda")
+load("../CTdata/eh_data/CT_genes.rda")
+
+CT_and_CTP_genes <- CT_genes
+CT_genes <- (filter(CT_genes, CT_gene_type == "CT_gene"))
 ```
 
 
@@ -89,6 +94,34 @@ legend_colors <- c("#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598",
 chr_colors <- c("X-linked" = "deeppink", "Not X" = "royalblue1")
 
 meth_colors <- c("Methylation" = "lightgreen", "Not methylation" = "gray")
+```
+
+# Pipeline figure values
+
+Here is the code used to have all the values in the pipeline figure
+
+```{r pipeline figures value}
+table(all_genes$GTEX_category)
+table(all_genes$multimapping_analysis)
+
+table(all_genes$testis_specificity)
+specific_to_pref <- all_genes %>%
+  filter(GTEX_category == "testis_specific" |
+           multimapping_analysis == "testis_specific") %>% 
+  filter(testis_specificity == "testis_preferential")
+table(specific_to_pref$not_detected_in_somatic_HPA)
+table(specific_to_pref$CCLE_category)
+table(specific_to_pref$TCGA_category)
+
+all_genes %>% 
+  filter(testis_specificity != "not_testis_specific") %>% 
+  filter(CCLE_category == "activated" & 
+           (TCGA_category == "multimapping_issue" | 
+              TCGA_category == "activated")) %>% 
+  pull(testis_specificity) %>% 
+  table()
+
+table(all_genes$CT_gene_type) #Before and after TSS verif
 ```
 
 
@@ -378,109 +411,28 @@ Bruggeman_CT <- Bruggeman_CT %>%
 ## CTexploreR data for selection pipeline
 
 To characterise the differences between our database and other, we need the 
-category we created in CTexploreR.
+category we created in CTexploreR. For this, we have the object `all_genes` in 
+CTdata that contains the CT analysis for all genes. More info in 
 
 Hereunder is what we used for our selection pipeline (coming from 
-`make_CT_list.R` in `CTdata`), mainly how we created the data. 
-
-```{r make_CT, message = FALSE, warning = FALSE}
-# GTEX data with the tissue specificity category determined
-all_genes <- as_tibble(rowData(GTEX_data), rownames = "ensembl_gene_id")
-all_genes$TPM_testis <- assay(GTEX_data)[, "Testis"]
-
-# Add multimapping_analysis assessing testis-specificity of genes "lowly_expressed"
-
-all_genes <- all_genes %>%
-  left_join(as_tibble(rowData(normal_tissues_multimapping_data), 
-                      rownames = "ensembl_gene_id"))
-
-# Summarise both specificity
-
-all_genes <- all_genes %>%
-  mutate(testis_specificity = case_when(
-    GTEX_category == "testis_specific" |
-      multimapping_analysis == "testis_specific" ~ "testis_specific",
-    GTEX_category == "testis_preferential" ~ "testis_preferential"))
-
-# Add testis scRNA seq highest expressed cell type
-
-all_genes <- all_genes %>%
-  left_join(as_tibble(rowData(testis_sce)) %>%
-              dplyr::select(external_gene_name, testis_cell_type))
-
-# Add higher in somatic scRNAseq data of normal tissues from the Human Protein Atlas 
-
-all_genes <- all_genes %>%
-  left_join(as_tibble(rowData(scRNAseq_HPA), rownames = "ensembl_gene_id") %>%
-              dplyr::select(ensembl_gene_id, external_gene_name,
-                            Higher_in_somatic_cell_type))
-
-# CCLE database analysis added
-
-all_genes <- all_genes %>%
-  left_join(as_tibble(rowData(CCLE_data), rownames = "ensembl_gene_id"))
-all_genes[is.na(all_genes$CCLE_category), "CCLE_category"] <- "not_in_CCLE"
+`make_all_genes_prelim.R` and `130_make_all_genes_and_CT_genes.R` in `CTdata`). 
 
 
-# TCGA database analysis added
-
-all_genes <- all_genes %>%
-  left_join(as_tibble(rowData(TCGA_TPM), rownames = "ensembl_gene_id") %>%
-              dplyr::select(ensembl_gene_id, external_gene_name, percent_pos_tum,
-                            percent_neg_tum, max_TPM_in_TCGA, TCGA_category))
-
-all_genes[all_genes$lowly_expressed_in_GTEX == TRUE &
-            all_genes$multimapping_analysis == "testis_specific",
-          "TCGA_category"] <- "multimapping_issue"
-
-# Add DAC analysis
-induced <- as_tibble(rowData(DAC_treated_cells_multimapping), 
-                     rownames = "ensembl_gene_id") %>%
-  filter(induced == TRUE) %>%
-  pull(external_gene_name)
-
-all_genes <- all_genes %>%
-  mutate(DAC_induced = case_when(external_gene_name %in% induced ~ TRUE,
-                                 !external_gene_name %in% induced ~ FALSE))
-
-# Add the most biologically relevant transcript (canonical and coordinates)
-
-ensembl <- biomaRt::useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
-attributes_vector <- c("ensembl_gene_id",
-                       "external_gene_name",
-                       "ensembl_transcript_id",
-                       "external_transcript_name",
-                       "chromosome_name",
-                       "strand",
-                       "transcript_start",
-                       "transcript_end",
-                       "transcription_start_site",
-                       "transcript_length",
-                       "transcript_biotype",
-                       "transcript_is_canonical")
-transcripts_infos <- as_tibble(biomaRt::getBM(attributes = attributes_vector,
-                                              mart = ensembl))
-canonical_transcripts <- transcripts_infos %>%
-  filter(transcript_is_canonical == 1) %>%
-  filter(chromosome_name %in% c(1:22, "X", "Y", "MT")) %>%
-  filter(transcript_biotype == "protein_coding" | transcript_biotype == "lncRNA")
-all_genes <- all_genes %>%
-  left_join(canonical_transcripts %>%
-              dplyr::select(ensembl_gene_id,
-                            external_transcript_name, ensembl_transcript_id,
-                            chromosome_name, strand, transcript_start,
-                            transcript_end, transcription_start_site,
-                            transcript_length, transcript_biotype))
-
+```{r all_genes, message = FALSE, warning = FALSE}
+all_genes
 ```
 
-From there, we filtered based on the testis_specificity ("testis_specific" or 
-"testis_preferential"), testis_cell_type (not "Macrophage", "Endothelial",
-"Myoid", "Sertoli", "Leydig"), Higher_in_somatic_cell_type (TRUE), 
+From there, we filtered based on the testis_specificity ("testis_specific", which
+is based on expression in health tissue and scRNA seq info from HPA), 
 CCLE_category ("activated") and TCGA_category ("activated" or 
-"multimapping_issue") to have our CT genes. Then the most relevant 
-transcript was validated manually (and check that there is a transcript 
-activated in testis and the same is activated in tumor).
+"multimapping_issue") to have our CT genes. Then, when wanting to validate TSS 
+manually, we realised that for some genes, reads were not properly aligned to
+exons which might reflect a poorly defined transcription in these regions and 
+are hence likely unreliable.
+
+Some genes were also characterized as Cancer-Testis preferential genes when 
+testis specificity was less stringent
+
 
 ## CTexploreR VS CTdatabase
 
@@ -500,8 +452,9 @@ plot(CTdatabase_ours, gp = gp)
 ```
 
 We find `r length(CTdatabase_ours@IntersectionSets[["11"]])/nrow(CTdatabase_cleaned)*100`
-% of CTdatabase in CTexploreR, which is `r length(CTdatabase_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
-% of our database.
+% of CTdatabase in CTexploreR, which is 
+`r length(CTdatabase_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`% of our 
+database.
 
 
 Lost genes analysis
@@ -510,15 +463,13 @@ Lost genes analysis
 CTdatabase_lost <- all_genes %>%
   filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]])
 
-# 12 Genes are lost because not in any database
+# 9 Genes are lost because not in any database
 
-
-CTdatabase_lost[is.na(CTdatabase_lost$testis_specificity), ]$testis_specificity <- "not_specific"
 table(CTdatabase_lost$testis_specificity)
 
-table(CTdatabase_lost$testis_cell_type)
+table(CTdatabase_lost$CT_gene_type)
 
-table(CTdatabase_lost$Higher_in_somatic_cell_type)
+table(CTdatabase_lost$not_detected_in_somatic_HPA)
 
 table(CTdatabase_lost$TCGA_category)
 
@@ -526,13 +477,50 @@ table(CTdatabase_lost$CCLE_category)
 
 table(CTdatabase_lost$TCGA_category, CTdatabase_lost$CCLE_category)
 
+
+CTdatabase_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(CTdatabase_lost,
+                testis_specificity != "testis_specific")$external_gene_name,
+       `Not tumour activated` = 
+         filter(CTdatabase_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(CTdatabase_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_CTdatabase <- fromList(CTdatabase_lost_upset)
+upset(upset_CTdatabase)
+
+ (nrow(CTdatabase_lost) - table(CTdatabase_lost$testis_specificity)[["testis_specific"]])/nrow(CTdatabase_lost)*100
 ```
 
-`r (nrow(CTdatabase_lost) - table(CTdatabase_lost$testis_specificity)[["testis_specific"]])/nrow(CTdatabase_lost)*100`% of 
-these genes are not testis specific. 
+`r (nrow(CTdatabase_lost) - table(CTdatabase_lost$testis_specificity)[["testis_specific"]])/nrow(CTdatabase_lost)*100`
+% of these genes are not testis specific. 
+
+However `r table(CTdatabase_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
 
 `r (nrow(CTdatabase_lost) - table(CTdatabase_lost$TCGA_category, CTdatabase_lost$CCLE_category)["activated", "activated"])/nrow(CTdatabase_lost)*100`
 % are not properly activated in tumors and/or cancer cell lines.
+
+In their analysis, they had characterised gene specificity, some being not 
+available, not found in testis, testis-restricted, testis-selective and 
+testis/brain-restricted. Let's see how the lost genes qualify as they didn't
+mention those were strictly testis specific.
+
+```{r CTdatabase_classification}
+CTdatabase_cleaned %>% 
+  filter(external_gene_name %in% CTdatabase_lost$external_gene_name) %>% 
+  pull(Classification) %>% 
+  table()
+```
+
+We can see that most of them had no info or were testis-selective (I couldn't
+find on website or paper how they selected categories).
+
 
 ## CTexploreR VS omics databases
 
@@ -559,7 +547,7 @@ upset_omics <- fromList(gene_list)
 upset(upset_omics)
 ```
 
-4 in all, 59 in at least 3 databases
+4 in all, 60 in at least 3 databases
 
 Lost genes analysis
 
@@ -569,16 +557,33 @@ plot(core_ours, gp = gp)
 Jamin_lost <- all_genes %>%
   filter(external_gene_name %in% core_ours@IntersectionSets[["10"]])
 
-Jamin_lost[is.na(Jamin_lost$testis_specificity), ]$testis_specificity <- "not_specific"
 table(Jamin_lost$testis_specificity)
 
-table(Jamin_lost$testis_cell_type)
+table(Jamin_lost$CT_gene_type)
 
-table(Jamin_lost$Higher_in_somatic_cell_type)
+table(Jamin_lost$not_detected_in_somatic_HPA)
 
 table(Jamin_lost$TCGA_category)
 
 table(Jamin_lost$CCLE_category)
+
+table(Jamin_lost$TCGA_category, Jamin_lost$CCLE_category)
+
+Jamin_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Jamin_lost,
+                testis_specificity != "testis_specific")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Jamin_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Jamin_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Jamin <- fromList(Jamin_lost_upset)
+upset(upset_Jamin)
 ```
 
 We find `r length(core_ours@IntersectionSets[["11"]])/nrow(Jamin_core_CT)*100`
@@ -587,6 +592,9 @@ We find `r length(core_ours@IntersectionSets[["11"]])/nrow(Jamin_core_CT)*100`
 
 `r (nrow(Jamin_lost) - table(Jamin_lost$testis_specificity)[["testis_specific"]])/nrow(Jamin_lost)*100`% of 
 these genes are not testis specific. 
+
+However `r table(Jamin_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
 
 `r (nrow(Jamin_lost) - table(Jamin_lost$TCGA_category, Jamin_lost$CCLE_category)["activated", "activated"])/nrow(Jamin_lost)*100`
 % are not properly activated in tumors and/or cancer cell lines.
@@ -599,17 +607,34 @@ Wang_lost <- all_genes %>%
   filter(external_gene_name %in% Wang_ours@IntersectionSets[["10"]])
 
 
-Wang_lost[is.na(Wang_lost$testis_specificity), ]$testis_specificity <- "not_specific"
 table(Wang_lost$testis_specificity)
 
-table(Wang_lost$testis_cell_type)
+table(Wang_lost$CT_gene_type)
 
-table(Wang_lost$Higher_in_somatic_cell_type)
+table(Wang_lost$not_detected_in_somatic_HPA)
 
 table(Wang_lost$TCGA_category)
 
 table(Wang_lost$CCLE_category)
 
+table(Wang_lost$TCGA_category, Wang_lost$CCLE_category)
+
+
+Wang_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Wang_lost,
+                testis_specificity != "testis_specific")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Wang_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Wang_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Wang <- fromList(Wang_lost_upset)
+upset(upset_Wang)
 ```
 
 We find `r length(Wang_ours@IntersectionSets[["11"]])/nrow(Wang_CT)*100`
@@ -618,6 +643,9 @@ We find `r length(Wang_ours@IntersectionSets[["11"]])/nrow(Wang_CT)*100`
 
 `r (nrow(Wang_lost) - table(Wang_lost$testis_specificity)[["testis_specific"]])/nrow(Wang_lost)*100`% of 
 these genes are not testis specific. 
+
+However `r table(Wang_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
 
 `r (nrow(Wang_lost) - table(Wang_lost$TCGA_category, Wang_lost$CCLE_category)["activated", "activated"])/nrow(Wang_lost)*100`
 % are not properly activated in tumors and/or cancer cell lines.
@@ -628,16 +656,33 @@ plot(Carter_ours, gp = gp)
 Carter_lost <- all_genes %>%
   filter(external_gene_name %in% Carter_ours@IntersectionSets[["10"]])
 
-Carter_lost[is.na(Carter_lost$testis_specificity), ]$testis_specificity <- "not_specific"
 table(Carter_lost$testis_specificity)
 
-table(Carter_lost$testis_cell_type)
+table(Carter_lost$CT_gene_type)
 
-table(Carter_lost$Higher_in_somatic_cell_type)
+table(Carter_lost$not_detected_in_somatic_HPA)
 
 table(Carter_lost$TCGA_category)
 
 table(Carter_lost$CCLE_category)
+
+table(Carter_lost$TCGA_category, Carter_lost$CCLE_category)
+
+Carter_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Carter_lost,
+                testis_specificity != "testis_specific")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Carter_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Carter_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Carter <- fromList(Carter_lost_upset)
+upset(upset_Carter)
 ```
 
 We find `r length(Carter_ours@IntersectionSets[["11"]])/nrow(Carter_CT)*100`
@@ -646,6 +691,9 @@ We find `r length(Carter_ours@IntersectionSets[["11"]])/nrow(Carter_CT)*100`
 
 `r (nrow(Carter_lost) - table(Carter_lost$testis_specificity)[["testis_specific"]])/nrow(Carter_lost)*100`% of 
 these genes are not testis specific. 
+
+However `r table(Carter_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
 
 `r (nrow(Carter_lost) - table(Carter_lost$TCGA_category, Carter_lost$CCLE_category)["activated", "activated"])/nrow(Carter_lost)*100`
 % are not properly activated in tumors and/or cancer cell lines.
@@ -656,16 +704,33 @@ plot(Bruggeman_ours, gp = gp)
 Bruggeman_lost <- all_genes %>%
   filter(external_gene_name %in% Bruggeman_ours@IntersectionSets[["10"]])
 
-Bruggeman_lost[is.na(Bruggeman_lost$testis_specificity), ]$testis_specificity <- "not_specific"
 table(Bruggeman_lost$testis_specificity)
 
-table(Bruggeman_lost$testis_cell_type)
+table(Bruggeman_lost$CT_gene_type)
 
-table(Bruggeman_lost$Higher_in_somatic_cell_type)
+table(Bruggeman_lost$not_detected_in_somatic_HPA)
 
 table(Bruggeman_lost$TCGA_category)
 
 table(Bruggeman_lost$CCLE_category)
+
+table(Bruggeman_lost$TCGA_category, Bruggeman_lost$CCLE_category)
+
+Bruggeman_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Bruggeman_lost,
+                testis_specificity != "testis_specific")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Bruggeman_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Bruggeman_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Bruggeman <- fromList(Bruggeman_lost_upset)
+upset(upset_Bruggeman)
 ```
 
 We find `r length(Bruggeman_ours@IntersectionSets[["11"]])/nrow(Bruggeman_CT)*100`
@@ -674,6 +739,9 @@ We find `r length(Bruggeman_ours@IntersectionSets[["11"]])/nrow(Bruggeman_CT)*10
 
 `r (nrow(Bruggeman_lost) - table(Bruggeman_lost$testis_specificity)[["testis_specific"]])/nrow(Bruggeman_lost)*100`% of 
 these genes are not testis specific. 
+
+However `r table(Bruggeman_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
 
 `r (nrow(Bruggeman_lost) - table(Bruggeman_lost$TCGA_category, Bruggeman_lost$CCLE_category)["activated", "activated"])/nrow(Bruggeman_lost)*100`
 % are not properly activated in tumors and/or cancer cell lines.
@@ -701,19 +769,15 @@ lost_list <- unique(c(core_ours@IntersectionSets[["10"]],
 lost <- all_genes %>%
   filter(external_gene_name %in% lost_list)
 
-not_specific <- filter(lost, is.na(testis_specificity))
+
+not_specific <- filter(lost, testis_specificity == "not_testis_specific")
 
 GTEX_expression(not_specific$external_gene_name, units = "log_TPM")
 
-somatic_testis <- filter(lost, testis_cell_type %in% c( "Macrophage", 
-                                                        "Endothelial", "Myoid",
-                                                        "Sertoli", "Leydig"))
+somatic_testis <- filter(lost, not_detected_in_somatic_HPA == FALSE)
 
 testis_expression(somatic_testis$external_gene_name, cells = "all")
-
-somatic_tissue <- filter(lost, Higher_in_somatic_cell_type == TRUE)
-
-HPA_cell_type_expression(somatic_tissue$external_gene_name)
+HPA_cell_type_expression(somatic_testis$external_gene_name)
 
 not_TCGA_activated <- filter(lost, TCGA_category != "activated" & 
                                TCGA_category != "multimapping_issue")
@@ -737,11 +801,13 @@ transcript_prob <- lost %>%
   dim()
 ```
 
+`r length(common)` genes in our CTexploreR database are found in at least one of
+the other database, which represents `r length(common)/dim(CT_genes)[1] * 100`%.
+
 We have lost `r length(lost_list)` genes in total. Among them, 
 `r dim(not_specific)[1]/length(lost_list)*100`% are not considered testis 
 specific, `r dim(somatic_testis)[1]/length(lost_list)*100`% are expressed in 
-testis somatic cells, `r dim(somatic_tissue)[1]/length(lost_list)*100`% are 
-expressed in somatic cells, `r dim(not_TCGA_activated)[1]/length(lost_list)*100`% 
+somatic cells, `r dim(not_TCGA_activated)[1]/length(lost_list)*100`% 
 are not activated in TCGA samples, 
 `r dim(not_CCLE_activated)[1]/length(lost_list)*100`% are not activated in CCLE 
 cell lines and `r transcript_prob[1]/length(lost_list)*100`% is lost due to 
@@ -756,6 +822,8 @@ new <- CT_genes %>%
 new
 
 table(new$testis_specificity)
+table(new$X_linked)
+table(new$regulated_by_methylation)
 table(new$X_linked, new$regulated_by_methylation)
 TCGA_expression(tumor = "all", genes = new$external_gene_name, 
                 units = "log_TPM")
@@ -763,10 +831,10 @@ TCGA_expression(tumor = "all",
                 genes = filter(new, X_linked & regulated_by_methylation)$external_gene_name, 
                 units = "log_TPM")
 ```
-There are `r dim(new)[1]` new CT genes in CTexploreR. These are mainly testis
-specific and on autosomes. Regulation by methylation is not the majority of 
-them. This makes sens as other databases have been focused on regulation by 
-methylation, so as here we don't segregate with that we can find these. There 
+
+There are `r dim(new)[1]` new CT genes in CTexploreR. These are all testis
+specific and mainly on autosomes. Regulation by methylation is the majority of 
+them.  There 
 is only 11 new "major" CT that are on the X chromosome and regulated by 
 methylation. CT45 are not that new. 
 
@@ -1004,7 +1072,7 @@ Next graph was removed from paper
 
 ```{r all_meth}
 genes <- CT_genes$external_gene_name
-database <- CT_mean_methylation_in_tissues[rownames(CT_mean_methylation_in_tissues) %in% genes]
+database <- mean_methylation_in_tissues[rownames(mean_methylation_in_tissues) %in% genes]
 
 mat <- na.omit(assay(database))
 clustering_option <- TRUE
@@ -1195,55 +1263,7 @@ Heatmap(mat[genes_avail, rownames(df_col), drop = FALSE],
 
 ```
 
-We used these data to determine in which testis cell type
-each gene is mostly expressed. 
 
-```{r main_cell_type_expression_barplot}
-CT_genes$main_cell_type_expression <- factor(CT_genes$testis_cell_type,
-                                                levels = c("SSC", 
-                                               "Spermatogonia", 
-                                               "Early_spermatocyte",
-                                               "Late_spermatocyte",
-                                               "Round_spermatid",
-                                               "Elongated_spermatid",
-                                               "Sperm1",
-                                               "Sperm2",
-                                               "Sertoli"))
-
-CT_genes %>% 
-  mutate(regulated_by_methylation = ifelse(regulated_by_methylation,
-                                           "Regulated by methylation",
-                                           "Not regulated by methylation")) %>%
-  filter(!is.na(testis_cell_type)) %>%
-  filter(main_cell_type_expression != "Sertoli") %>% 
-  ggplot(aes(x = chr, fill = main_cell_type_expression,
-             color = main_cell_type_expression)) +
-  scale_fill_manual(values = c("lightyellow2", "moccasin", "gold", "orange","red2",
-                               "darkred", "violet", "purple")) +
-  scale_color_manual(values = c("lightyellow3", "navajowhite2", "gold", "orange","red2",
-                               "darkred", "violet", "purple")) +
-  geom_bar(stat = 'count') +
-  facet_grid(main_cell_type_expression ~ regulated_by_methylation) +
-  xlab("Chromosome") +
-  ylab("Number of genes") +
-  theme_bw() +
-  theme(
-    axis.text.x = element_text(color = "black", angle = 90, vjust = 0.5, size = 10),
-    axis.title = element_text(size = 10, color = "gray10"),
-    strip.text.y = element_blank()) 
-
-```
-
-```{r escapees}
-CT_genes %>% 
-  filter(X_linked) %>% 
-  filter(testis_cell_type %in% c("Late_spermatocyte","Round_spermatid", 
-                                 "Elongated_spermatid", "Sperm1", "Sperm2"))
-
-```
-
-These genes are on the X chromosome but escape X chromosome inactivation and are
-activates post-meioticly.
 
 
 ## Gene function
