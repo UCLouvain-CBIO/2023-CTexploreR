@@ -71,20 +71,65 @@ meth_colors <- c("Methylation" = "lightgreen", "Not methylation" = "gray")
 
 # Pipeline figure values
 
-Here is the code used to have all the values in the pipeline figure
+Here is the code used to have all the values in the pipeline figure.
+
+As a reminder testis_specificity has been done summarizing testis-specificity 
+analysis from GTEX, multimapping, HPA_cell_type_specificities, CCLE and TCGA 
+categories.
+
+Testis-specific genes must be: classified as "testis-specific" in GTEX or 
+multimappig analysis +  must not be detected in any somatic cell type (in HPA 
+scRNAseq analysis) + can not be classified as "leaky" in CLLE and TCGA 
+categories + can not be detected (TPM > 0.5) in more than 75% of normal 
+peritumoral tissues from a TCGA tumor type.
+
+Testis_preferential genes must be: classified as "testis_preferential" in GTEX 
+or multimappig analysis or initially classified as "testis-specific" in GTEX or 
+multimappig analysis but downgraded to "testis_preferential because they were 
+detected in a somatic cell type (in HPA scRNAseq analysis) + can be detected in 
+some somatic cell type but the level has to be at least 10 times lower than the
+level detected in a germ cell type (in HPA scRNAseq analysis) must not be 
+classified as "leaky" in CLLE and TCGA categories.
 
 ```{r pipeline figures value}
 table(all_genes$GTEX_category)
 table(all_genes$multimapping_analysis)
 
 table(all_genes$testis_specificity)
+table(all_genes$GTEX_category, all_genes$testis_specificity)
+
 specific_to_pref <- all_genes %>%
   filter(GTEX_category == "testis_specific" |
            multimapping_analysis == "testis_specific") %>% 
   filter(testis_specificity == "testis_preferential")
-table(specific_to_pref$not_detected_in_somatic_HPA)
-table(specific_to_pref$CCLE_category)
-table(specific_to_pref$TCGA_category)
+# No more specific to pref as their ratio are all < 10
+# all_genes %>%
+#   filter(GTEX_category == "testis_specific" |
+#            multimapping_analysis == "testis_specific") %>% 
+#   filter(!not_detected_in_somatic_HPA)
+
+
+specific_to_none <- all_genes %>%
+  filter(GTEX_category == "testis_specific" |
+           multimapping_analysis == "testis_specific") %>% 
+  filter(testis_specificity == "not_testis_specific")
+table(specific_to_none$CCLE_category)
+table(specific_to_none$TCGA_category)
+table(specific_to_none$max_q75_in_NT < 0.5)
+# 95 lost at this step
+table(specific_to_none$not_detected_in_somatic_HPA)
+table(specific_to_none$HPA_ratio_germ_som >= 10)
+
+preferential_to_none <- all_genes %>%
+  filter(GTEX_category == "testis_preferential" |
+           multimapping_analysis == "testis_preferential") %>% 
+  filter(testis_specificity == "not_testis_specific")
+table(preferential_to_none$CCLE_category)
+table(preferential_to_none$TCGA_category)
+table(preferential_to_none$not_detected_in_somatic_HPA)
+# Almost all detected in somatic
+table(preferential_to_none$HPA_ratio_germ_som >= 10)
+
 
 all_genes %>% 
   filter(testis_specificity != "not_testis_specific") %>% 
