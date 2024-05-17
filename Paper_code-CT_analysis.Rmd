@@ -1712,8 +1712,9 @@ draw(h2, column_title = "CT genes not regulated by methylation",
 ```{r, echo = FALSE, eval = FALSE}
 pdf(file = "figs/CT_met_AUC_hypo_TCGA.pdf", height = 2.3, width = 3)
 draw(h1, column_title = "CT genes regulated by methylation",
-     column_title_gp = gpar(fontsize = 5), show_heatmap_legend = FALSE,
-     show_annotation_legend = FALSE)
+     column_title_gp = gpar(fontsize = 5), show_heatmap_legend = TRUE,
+     show_annotation_legend = TRUE, heatmap_legend_side = "bottom",
+     merge_legend = TRUE)
 dev.off()
 
 pdf(file = "figs/CT_not_met_AUC_hypo_TCGA.pdf", height = 2.3, width = 3)
