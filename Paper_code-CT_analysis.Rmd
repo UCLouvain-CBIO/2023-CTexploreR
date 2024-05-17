@@ -29,8 +29,6 @@ library(DOSE)
 library(org.Hs.eg.db)
 library(clusterProfiler)
 library(patchwork)
-library(BiocParallel)
-library(Biostrings)
 library(AUCell)
 ```
 
@@ -53,28 +51,34 @@ load("../CTdata/eh_data/testis_sce.rda")
 load("../CTdata/eh_data/FGC_sce.rda")
 load("../CTdata/eh_data/oocytes_sce.rda")
 
-
 load("../CTdata/eh_data/CT_genes.rda")
-
 
 
 CT_genes_types <- CT_genes %>% 
   dplyr::rename(gene = external_gene_name) %>% 
   mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
-                                !regulated_by_methylation ~ "Not methylation")) %>%
+                                !regulated_by_methylation ~ 
+                                  "Not methylation")) %>%
   mutate(Chr = case_when(X_linked ~ "X-linked",
                          !X_linked ~ "not X")) %>% 
   mutate(chr_met = case_when(regulated_by_methylation & X_linked ~ "X_met",
                              !regulated_by_methylation & X_linked ~ "X_not_met",
                              regulated_by_methylation & !X_linked ~ "not_X_met",
-                             !regulated_by_methylation & !X_linked ~ "not_X_not_met")) %>% 
-  mutate(specificity = case_when(GTEX_category == "testis_specific" ~ "Testis specific",
-                                        GTEX_category == "testis_preferential" ~ "Testis preferential",
-                                        GTEX_category == "lowly_expressed" ~ "Undetectable in GTEX")) %>% 
-  mutate(specificity = factor(specificity, 
-                                     levels = c("Testis specific",  "Undetectable in GTEX", "Testis preferential"))) %>% 
+                             !regulated_by_methylation & !X_linked ~ 
+                               "not_X_not_met")) %>% 
+  mutate(specificity = case_when(GTEX_category == "testis_specific" ~ 
+                                   "Testis specific",
+                                 GTEX_category == "testis_preferential" ~ 
+                                   "Testis preferential",
+                                 GTEX_category == "lowly_expressed" ~ 
+                                   "Undetectable in GTEX")) %>% 
+  mutate(specificity = factor(specificity,
+                              levels = c("Testis specific",  
+                                         "Undetectable in GTEX", 
+                                         "Testis preferential"))) %>% 
   mutate(chr_met = factor(chr_met, 
-                          levels = c("X_met", "not_X_met", "X_not_met", "not_X_not_met")))
+                          levels = c("X_met", "not_X_met", "X_not_met", 
+                                     "not_X_not_met")))
 
 
 ```
@@ -129,6 +133,8 @@ DAC_colors <- c(
     "IMR5-75" = "deeppink2", "NCH1681" = "steelblue2",
     "NCH612" = "red3", "TS603" = "darkmagenta")
 
+DAC_treatment_colors <- c("CTL" = "royalblue4", "5-aza" = "maroon3")
+
 Regulation_colors <- c("Methylation" = "indianred2", 
                        "Not methylation"= "cyan4")
 
@@ -137,7 +143,7 @@ chr_met_colors = c("X_met" = "mediumorchid2",
                    "not_X_met"= "darkorange1",
                    "not_X_not_met" = "dodgerblue1")
 
-Chr_colors = c("X-linked" = "deeppink", "not X" = "lightgreen")
+Chr_colors = c("X-linked" = "deeppink3", "not X" = "lightgreen")
 
 Testis_specificity_colors = c("Testis specific" = "mediumpurple2",
                               "Testis preferential" = "goldenrod1",
@@ -155,21 +161,21 @@ testis_colors <- c(
     "Endothelial" = "steelblue")
 
 Fetal_cell_colors = c( "F_PGC" = "pink", 
-                       "F_GC" = "pink4", 
+                       "F_GC" = "pink3", 
                        "F_oogonia" = "palevioletred3",
                        "F_oocyte" = "mediumorchid4", 
                        "M_PGC" = "lightblue1", 
                        "M_GC" = "steelblue3",
-                       "M_pre_spermatogonia" = "darkblue")
+                       "M_pre_spermatogonia" = "royalblue3")
 
-oocytes_colors <- c("Growing oocytes" = "paleturquoise3", 
-                  # "Fully grown oocytes" ="lightgreen", 
-                  # "Metaphase I" = "mediumvioletred", 
-                  "Metaphase II" = "mediumvioletred")
+oocytes_colors <- c("Growing oocytes" = "mediumpurple1",
+                    # "Fully grown oocytes" ="lightgreen",
+                     # "Metaphase I" = "mediumvioletred",
+                    "Metaphase II" = "mediumpurple4")
 
-sex_colors <- c("F" = "palevioletred1", "M"= "skyblue2")
+sex_colors <- c("F" = "palevioletred1", "M"= "skyblue1")
 
-stage_colors <- c( "pre-meiotic" = "moccasin", 
+stage_colors <- c( "pre-meiotic" = "peachpuff", 
                    "meiotic"= "lightsalmon",
                    "post-meiotic" = "maroon4",
                    "somatic" = "gray")
@@ -253,10 +259,10 @@ table(all_genes$CT_gene_type) #Before and after TSS verif
 
 ## GTEX-TCGA-CCLE
 
-
 Illustrate the selection using heatmaps with GTEx data, TCGA and CCLE
 
 Function to print GTEX expression with specific annotations.
+
 ```{r GTEX_function}
 print_GTEX_heatmap <- function(genes = NULL, units = "log_TPM", 
                                row_fontsize = 2,
@@ -853,7 +859,7 @@ CT_genes_types <- CT_genes_types %>%
 
 ## Regulation by methylation
 
-```{r meth_value_heatmap}
+```{r meth_heatmap_function}
 met_genes <- CT_genes %>% 
   filter(regulated_by_methylation) %>% 
   pull(external_gene_name)
@@ -953,7 +959,7 @@ mean_methylation_fig <- function(genes = NULL,
 }
 ```
 
-```{r DAC_heatmap}
+```{r DAC_heatmap_function}
 DAC_fig <- function(genes = gene_type$gene, multimapping = TRUE, 
                     row_fontsize = 2,
                     units = "log1p",
@@ -1011,7 +1017,7 @@ DAC_fig <- function(genes = gene_type$gene, multimapping = TRUE,
   
   column_ha_treatment <- HeatmapAnnotation(
     treatment = df_col$treatment,
-    col = list(treatment = c("CTL" = "royalblue4", "5-aza" = "maroon3")),
+    col = list(treatment = DAC_treatment_colors),
     annotation_legend_param = legends_param,
     border = FALSE, 
     simple_anno_size = unit(0.2, "cm"),
@@ -1097,8 +1103,7 @@ h_met <- mean_methylation_fig(genes = CT_genes$external_gene_name,
 h_DAC <- DAC_fig(CT_genes$external_gene_name, 
                  multimapping = TRUE, 
                  units = "log1p",
-                 row_fontsize = fs
-)
+                 row_fontsize = fs)
                  
 
 h_list <- h_met + h_DAC 
@@ -1123,7 +1128,8 @@ met_prop_fig <- ggplot(x, aes(x = '', y = value, fill = Regulation)) +
   geom_bar(stat="identity", width=1) +
   coord_polar("y", start = 0) +
   geom_text(aes(y = value/5 + c(0, cumsum(value)[-length(value)]), 
-                label = rev(paste0(Regulation, "\n", value, "/", nrow(CT_genes_types), "\n",
+                label = rev(paste0(Regulation, "\n", value, "/", 
+                                   sum(table(CT_genes_types$Regulation)), "\n",
                                round(Percent * 100), "%"))))+
             #, size = 6
   scale_fill_manual(values = c( "indianred2", "cyan4")) +
@@ -1152,7 +1158,9 @@ Genes regulated by methylation are enriched on the X chromosome.
 ```{r}
 CT_genes_types$chr <- factor(CT_genes_types$chr, levels = c(1:22, "X", "Y"))
 
-fig_X_enrichment <- ggplot(CT_genes_types, aes(x = chr, fill = Regulation)) +
+fig_X_enrichment <- ggplot(CT_genes_types[
+  !is.na(CT_genes_types$regulated_by_methylation), ], 
+                           aes(x = chr, fill = Regulation)) +
   geom_bar(stat = 'count') +
   xlab("Chromosome") +
   ylab("Gene number") +
@@ -1218,7 +1226,8 @@ prop_fig <- ggplot(x, aes(x = '', y = value, fill = Regulation)) +
   geom_bar(stat="identity", width = 1) +
   coord_polar("y", start = 0) +
   geom_text(aes(y = value/5 + c(0, cumsum(value)[-length(value)]),
-                label = rev(paste0(Regulation, "\n", value, "/", nrow(CT_genes_types), "\n",
+                label = rev(paste0(Regulation, "\n", value, "/", 
+                                   sum(table(CT_genes_types$Regulation)), "\n",
                                round(Percent * 100), "%"))), size = 1.2 )+
   scale_fill_manual(values = Regulation_colors) +
   theme(axis.title.x = element_blank(),
@@ -1232,7 +1241,9 @@ prop_fig <- ggplot(x, aes(x = '', y = value, fill = Regulation)) +
         legend.position = "none")
 
 
-fig_freq_by_chr <- ggplot(CT_genes_types, aes(x = chr, fill = Regulation)) +
+fig_freq_by_chr <- ggplot(CT_genes_types[
+  !is.na(CT_genes_types$regulated_by_methylation), ], 
+  aes(x = chr, fill = Regulation)) +
   geom_bar(stat = 'count') +
   xlab("Chromosome") +
   ylab("Gene number") +
@@ -1337,11 +1348,11 @@ mean_in_pos <- as_tibble(assay(TCGA), rownames = "ensembl_gene_id") %>%
 mean_and_prop_TCGA <- prop_of_pos_tum %>% 
   left_join(mean_in_pos) %>% 
   right_join(CT_genes_types) %>% 
-  dplyr::select(gene, mean_log, proportion_of_positive_tum, Regulation, X_linked) %>% 
+  dplyr::select(gene, mean_log, proportion_of_positive_tum, 
+                Regulation, X_linked) %>% 
   mutate(source = "TCGA tumor samples")
 
 # combine with CCLE data
-load("~/cluster/Packages/CTdata/eh_data/CCLE_data.rda")
 ccle <- CCLE_data
 tumors <- unique(ccle$primary_disease)
 
@@ -1376,7 +1387,7 @@ labelled_genes <- mean_and_prop %>%
 mean_and_prop$source <- factor(mean_and_prop$source, 
                                levels = c("TCGA tumor samples", "CCLE tumor cell lines"))
 
-fig_mean_prop_in_tum <- ggplot(mean_and_prop,
+fig_mean_prop_in_tum <- ggplot(mean_and_prop[!is.na(mean_and_prop$Regulation), ],
                                aes(x = mean_log, y = proportion_of_positive_tum,
                                    shape = X_linked,
                                    color = Regulation,
@@ -1619,10 +1630,7 @@ print_TCGA_heatmap_with_AUCscores <- function(genes = NULL,
   h <- Heatmap(mat[gene_type$gene, rownames(df_col)],
                name = "log(TPM +1)",
                column_title = levels(df_col$project_id),
-               column_title_gp = gpar(col =c("COAD" = "darkorchid2", 
-                                             "HNSC" = "deeppink2",
-                                             "LUSC" = "seagreen3", 
-                                             "SKCM" = "red3"), 
+               column_title_gp = gpar(col = TCGA_colors[tum_type], 
                                       fontsize = 3, face = "bold"),
                clustering_method_rows = clust_method,
                clustering_method_columns = clust_method,
@@ -1674,7 +1682,6 @@ h1 <- print_TCGA_heatmap_with_AUCscores(genes = met_genes,
                                         h_height = 5,
                                         fontsize = 1, 
                                         scale_lims = c(0, 6),
-                                        # tum_type = c("SKCM", "LUAD", "COAD", "BRCA"),
                                         tum_type = tum_types,
                                         split_rows_by = NULL)
 draw(h1, column_title = "CT genes regulated by methylation",
@@ -1695,7 +1702,6 @@ h2 <- print_TCGA_heatmap_with_AUCscores(genes = not_met_genes,
                                        h_height = 2.5,
                                        fontsize = 1, 
                                        scale_lims = c(0, 6),
-                                       #  tum_type = c("SKCM", "LUAD", "COAD", "BRCA"),
                                        tum_type = tum_types,
                                        split_rows_by = NULL)
 draw(h2, column_title = "CT genes not regulated by methylation",
@@ -1727,11 +1733,11 @@ tcga$project_id <- factor(tcga$project_id , levels = tum_types)
 f1 <- as_tibble(colData(TCGA), rownames = "barcode") %>% 
   filter(project_id %in% tum_types) %>% 
   mutate(project_id = factor(project_id, levels = tum_types,)) %>% 
-  ggplot(aes(x = global_methylation, y = AUC_genes_regulated_by_met, color = project_id)) +
+  ggplot(aes(x = global_methylation, y = AUC_genes_regulated_by_met, 
+             color = project_id)) +
   geom_point(size = 0.3) +
   facet_wrap(~ project_id, nrow = 1) +
-  scale_color_manual(values = c("COAD" = "darkorchid2", "HNSC" = "deeppink2",
-                                "LUSC" = "seagreen3", "SKCM" = "red3")) + 
+  scale_color_manual(values = TCGA_colors) + 
   geom_smooth(method = 'lm', color = "black", linewidth = 0.3, se = FALSE) +
   xlab('Global methylation level') +
   ylab("AUCscore CT genes\nregulated by methylation") +
@@ -1750,11 +1756,11 @@ f1 <- as_tibble(colData(TCGA), rownames = "barcode") %>%
 f2 <- as_tibble(colData(TCGA), rownames = "barcode") %>% 
   filter(project_id %in% tum_types) %>% 
   mutate(project_id = factor(project_id, levels = tum_types,)) %>% 
-  ggplot(aes(x = global_methylation, y = AUC_genes_not_regulated_by_met, color = project_id)) +
+  ggplot(aes(x = global_methylation, y = AUC_genes_not_regulated_by_met, 
+             color = project_id)) +
   geom_point(size = 0.3) +
   facet_wrap(~ project_id, nrow = 1) +
-  scale_color_manual(values = c("COAD" = "darkorchid2", "HNSC" = "deeppink2",
-                                "LUSC" = "seagreen3", "SKCM" = "red3")) + 
+  scale_color_manual(values = TCGA_colors) + 
   geom_smooth(method = 'lm', color = "black", linewidth = 0.3, se = FALSE) +
   xlab('Global methylation level') +
   ylab("AUCscore CT genes\nnot regulated by methylation") +
@@ -1784,11 +1790,12 @@ pdf(file = paste0("figs/CT_not_met_AUCscore_hypo_TCGA.pdf"), height = 2.5)
 f2
 dev.off()
 ```
+
 # CT expression in healthy cells (fetal and adult)
 
 First treating data
 
-```{r}
+```{r, testis_data}
 ################################################################################
 # Load testis scRNAseq data
 ################################################################################
@@ -2102,10 +2109,10 @@ draw_FGC_heatmap <- function(genes,
   return(ht_FGCs)
 }
 
-#######################################################################
+################################################################################
 ## Function to draw expression in adult testis cells with specific annotations
 ## and downasampling the number of cells from each cell type
-#######################################################################
+################################################################################
 draw_testis_heatmap <- function(genes, 
                                 split_by = "chr_met", 
                                 sex = c("F", "M"),
@@ -2276,10 +2283,10 @@ draw_testis_heatmap <- function(genes,
   return(ht_testis)
 }
 
-######################################################################
+################################################################################
 ## Function to draw expression in adult oocytes cells with specific annotations
 ## and downasampling the number of cells from each cell type
-#######################################################################
+################################################################################
 draw_oocytes_heatmap <- function(genes, 
                                split_by = "chr_met", 
                                ncells_max = NULL,
@@ -2297,8 +2304,8 @@ draw_oocytes_heatmap <- function(genes,
                                                        "Metaphase II")]
   
   df_col_oocytes <- data.frame(type = adult_oocytes_sce$type,
-                             sex = adult_oocytes_sce$sex,
-                             stage = adult_oocytes_sce$stage)
+                               sex = adult_oocytes_sce$sex,
+                               stage = adult_oocytes_sce$stage)
   
   rownames(df_col_oocytes) <- colnames(adult_oocytes_sce)
   df_col_oocytes <- df_col_oocytes[order(df_col_oocytes$type),]
@@ -2318,8 +2325,8 @@ draw_oocytes_heatmap <- function(genes,
   }
   
   column_ha_cell_type = HeatmapAnnotation(
-    oocytes_cell_type = df_col_oocytes$type,
-    col = list(Adult_cell_type = oocytes_colors),      
+    Oocytes_cell_type = df_col_oocytes$type,
+    col = list(Oocytes_cell_type = oocytes_colors),      
     border = TRUE,
     simple_anno_size = unit(0.15, "cm"),
     annotation_name_gp = gpar(fontsize = 0),
