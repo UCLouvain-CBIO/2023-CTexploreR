@@ -34,11 +34,6 @@ library(AUCell)
 
 
 ```{r load_data, warning=FALSE, message=FALSE}
-# CCLE_data <- CTdata::CCLE_data()
-# TCGA_TPM <- CTdata::TCGA_TPM()
-# testis_sce <- CTdata::testis_sce()
-####
-
 load("../CTdata/eh_data/all_genes.rda")
 load("../CTdata/eh_data/GTEX_data.rda")
 load("../CTdata/eh_data/CCLE_data.rda")
@@ -737,7 +732,7 @@ draw(h_list, main_heatmap = "TCGA (logTPM)", ht_gap = unit(c(0.3, 0.01), "cm"),
      merge_legend = TRUE)
 ```
 
-```{r, eval = FALSE, echo=FALSE}
+```{r, eval = TRUE, echo=FALSE}
 pdf(file = paste0("figs/GTEX_Tumors.pdf"))
 draw(h_list, main_heatmap = "TCGA (logTPM)", 
      ht_gap = unit(c(0.3, 0.01), "cm"),
@@ -828,7 +823,7 @@ draw(h_list, main_heatmap = "log(TPM)", ht_gap = unit(0.3, "cm"),
                  height = unit(5, "cm"))
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/Multimapping.pdf"))
 draw(h_list, main_heatmap = "log(TPM)", ht_gap = unit(0.3, "cm"),
                  height = unit(5, "cm"))
@@ -931,7 +926,7 @@ mean_methylation_fig <- function(genes = NULL,
                column_title_gp = gpar(fontsize = 6),
                border = TRUE,
                border_gp = gpar(lwd = 0.5),
-               row_title_gp = gpar(col = c("indianred2", "cyan4"), fontsize = 6),
+               row_title_gp = gpar(col = c("indianred2", "cyan4"), fontsize = 8),
                row_split = factor(gene_type$Regulation,
                                   levels = c("Methylation", "Not methylation")),
                #row_split = factor(gene_type$group),
@@ -1111,7 +1106,7 @@ draw(h_list, main_heatmap = "Mean \nmethylation", ht_gap = unit(0.5, "cm"),
      merge_legend = TRUE)
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/Methylation_classification.pdf"))
 draw(h_list, main_heatmap = "Mean \nmethylation", ht_gap = unit(0.5, "cm"), 
      merge_legend = TRUE)
@@ -1171,7 +1166,7 @@ fig_X_enrichment
 ```
 
 
-```{r, eval = FALSE, echo=FALSE}
+```{r, eval = TRUE, echo=FALSE}
 pdf(file = paste0("figs/X_enrichment.pdf"), width = 7, height = 4)
 cowplot::plot_grid(met_prop_fig, fig_X_enrichment, labels = c('A', 'B'), 
           rel_widths = c(1, 2),
@@ -1312,6 +1307,7 @@ prop.table(table(methylation = CT_genes$regulated_by_methylation,
 prop.table(table(CT_genes$transcript_biotype,
                  methylation = CT_genes$regulated_by_methylation))
 ```
+
 # CT genes in tumour : coexpression and link with global hypomethylation
 
 ## Positive tumour proportion and expression level
@@ -1403,7 +1399,7 @@ fig_mean_prop_in_tum <- ggplot(mean_and_prop[!is.na(mean_and_prop$Regulation), ]
     max.overlaps = 30, direction = "both") +
   xlab("Mean expression log(TPM + 1)\nin positive samples") +
   ylab("Proportion of positive samples (%)") +
-  facet_wrap(~ source, ncol = 1) +
+  facet_wrap(~ source, ncol = 2) +
   theme_bw() +
   theme(legend.position = "right",
         aspect.ratio = 0.8,
@@ -1419,7 +1415,7 @@ fig_mean_prop_in_tum <- ggplot(mean_and_prop[!is.na(mean_and_prop$Regulation), ]
 
 fig_mean_prop_in_tum
 ```
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/Mean_prop_in_tumors.pdf"), width = 5, height = 4)
 fig_mean_prop_in_tum
 dev.off()
@@ -1709,7 +1705,7 @@ draw(h2, column_title = "CT genes not regulated by methylation",
 
 ```
 
-```{r, echo = FALSE, eval = FALSE}
+```{r, echo = FALSE, eval = TRUE}
 pdf(file = "figs/CT_met_AUC_hypo_TCGA.pdf", height = 2.3, width = 3)
 draw(h1, column_title = "CT genes regulated by methylation",
      column_title_gp = gpar(fontsize = 5), show_heatmap_legend = TRUE,
@@ -1781,7 +1777,7 @@ f1
 f2
 ```
 
-```{r}
+```{r, echo = FALSE}
 pdf(file = paste0("figs/CT_met_AUCscore_hypo_TCGA.pdf"), height = 2.5)
 f1
 dev.off()
@@ -1796,10 +1792,8 @@ dev.off()
 
 First treating data
 
-```{r, testis_data}
-################################################################################
+```{r testis_data}
 # Load testis scRNAseq data
-################################################################################
 
 testis_sce <- testis_sce[CT_genes$external_gene_name[
   CT_genes$external_gene_name %in% rownames(testis_sce)],]
@@ -1856,9 +1850,9 @@ kept_genes <- rownames(testis_sce)[
   rowSums(percent_of_expressing_cells[, -1] >= testis_percent_thr) > 0]
 testis_sce <- testis_sce[kept_genes,]
 
-################################################################################
-# Load FGC and oocytes scRNAseq data
-################################################################################
+
+## Load FGC and oocytes scRNAseq data
+
 
 
 selected_CT <- BiocGenerics::intersect(rownames(FGC_sce), rownames(testis_sce))
@@ -1871,8 +1865,8 @@ oocytes_sce <- oocytes_sce[selected_CT, ]
 
 
 legends_param_sc <- list(
-  labels_gp = gpar(col = "black", fontsize = 2),
-  title_gp = gpar(col = "black", fontsize = 3),
+  labels_gp = gpar(col = "black", fontsize = 3),
+  title_gp = gpar(col = "black", fontsize = 4),
   simple_anno_size = unit(0.15, "cm"),
   row_names_gp = gpar(fontsize = 1),
   annotation_name_side = "left",
@@ -1892,17 +1886,17 @@ CT genes with logcounts >= `r testis_logcount_thr` in at least
 (adult testis dataset) and present in FCG and oocytes datasets
 
 ```{r healthy_cells_function}
-#######################################################################
+
 # Function to downsample cell types
-#######################################################################
+
 sample_cells <- function(barcodes, nmax){
   sample(barcodes, size = min(nmax, length(barcodes)), replace = FALSE)
 }
 
-#######################################################################
+
 ## Function to draw expression in FGC with specific annotations
 ## and downasampling the number of cells from each cell type
-#######################################################################
+
 draw_FGC_heatmap <- function(genes, 
                              split_by = "chr_met", 
                              ncells_max = NULL,
@@ -1913,7 +1907,8 @@ draw_FGC_heatmap <- function(genes,
                              show_legend = TRUE,
                              h_width = 5,
                              h_height = 10,
-                             show_right_annot = TRUE){
+                             show_row_annot = TRUE, 
+                             row_title = TRUE){
   
   fetal_sce <- FGC_sce
   
@@ -2052,7 +2047,9 @@ draw_FGC_heatmap <- function(genes,
   
   rAnnot <- c(row_ha_regulation, row_ha_chr, gap = unit(1, "mm"))
   
-  if (!show_right_annot) rAnnot <- NULL
+  if (!show_row_annot) rAnnot <- NULL
+  
+  if (row_title) rtitle <- gpar(fontsize = 5, fontface = "bold") else rtitle <- gpar(fontsize = 0)
   
   title <- "Fetal germ cells"
   if (all(sex == "F")) {
@@ -2095,9 +2092,9 @@ draw_FGC_heatmap <- function(genes,
                                         #column_ha_group, 
                                         #column_ha_donor_id,
                                         column_ha_type),  
-                     right_annotation = rAnnot,
+                     left_annotation = rAnnot,
                      column_title_gp = gpar(fontsize = 5),
-                     row_title_gp = gpar(fontsize = 0),
+                     row_title_gp = rtitle,
                      gap = unit(0.01, "mm"),
                      use_raster = TRUE,
                      raster_device = "CairoPNG",
@@ -2105,15 +2102,16 @@ draw_FGC_heatmap <- function(genes,
                      #heatmap_height = unit(h_height, "cm"),
                      raster_quality = 10,
                      show_heatmap_legend = show_legend,
-                     heatmap_legend_param = legends_param_sc)
+                     heatmap_legend_param = legends_param_sc,
+                     row_title_rot = 0)
   
   return(ht_FGCs)
 }
 
-################################################################################
+
 ## Function to draw expression in adult testis cells with specific annotations
 ## and downasampling the number of cells from each cell type
-################################################################################
+
 draw_testis_heatmap <- function(genes, 
                                 split_by = "chr_met", 
                                 sex = c("F", "M"),
@@ -2124,7 +2122,8 @@ draw_testis_heatmap <- function(genes,
                                 show_legend = TRUE,
                                 h_width = 5,
                                 h_height = 10,
-                                clust_method = "ward.D"){
+                                clust_method = "ward.D",
+                                show_row_annot = TRUE){
   
   testis_adult_sce <- testis_sce[, testis_sce$stage != "somatic"]
   testis_adult_sce$type <- factor(testis_adult_sce$type, levels = germcells)
@@ -2230,6 +2229,10 @@ draw_testis_heatmap <- function(genes,
                               col = list(Chr = Chr_colors),
                               annotation_name_gp = gpar(fontsize = 0))
   
+  rAnnot <- c(row_ha_regulation, row_ha_chr, gap = unit(1, "mm"))
+  
+  if (!show_row_annot) rAnnot <- NULL
+  
   mat <-  as.matrix(
     assay(testis_adult_sce, "logcounts")[gene_type$gene, rownames(df_col_testis)])
   
@@ -2267,9 +2270,7 @@ draw_testis_heatmap <- function(genes,
                        top_annotation = c(column_ha_sex, 
                                           column_ha_stage,
                                           column_ha_cell_type),  
-                       right_annotation = c(row_ha_regulation, 
-                                            row_ha_chr, 
-                                            gap = unit(1, "mm")),
+                       right_annotation = rAnnot,
                        column_title_gp = gpar(fontsize = 5),
                        row_title_gp = gpar(fontsize = 0),
                        gap = unit(0.01, "mm"),
@@ -2284,10 +2285,9 @@ draw_testis_heatmap <- function(genes,
   return(ht_testis)
 }
 
-################################################################################
 ## Function to draw expression in adult oocytes cells with specific annotations
 ## and downasampling the number of cells from each cell type
-################################################################################
+
 draw_oocytes_heatmap <- function(genes, 
                                split_by = "chr_met", 
                                ncells_max = NULL,
@@ -2496,7 +2496,8 @@ ht_testis <- draw_testis_heatmap(my_genes,
                     clusterRow  = FALSE,
                     split_by = "chr_met",
                     show_legend = TRUE,
-                    clust_method = "ward.D2")
+                    clust_method = "ward.D2",
+                    show_row_annot = FALSE)
 
 female_FGC_ht <- draw_FGC_heatmap(my_genes, 
                  ncells_max = ncells,
@@ -2505,7 +2506,8 @@ female_FGC_ht <- draw_FGC_heatmap(my_genes,
                  font_size = fs,
                  scale_lims = scale_limits, 
                  show_legend = FALSE,
-                 show_right_annot = FALSE)
+                 show_row_annot = TRUE,
+                 row_title = TRUE)
 
 male_FGC_ht <- draw_FGC_heatmap(my_genes, 
                  ncells_max = ncells,
@@ -2514,7 +2516,8 @@ male_FGC_ht <- draw_FGC_heatmap(my_genes,
                  font_size = fs,
                  scale_lims = scale_limits, 
                  show_legend = FALSE,
-                 show_right_annot = FALSE)
+                 show_row_annot = FALSE,
+                 row_title = FALSE)
 
 
 
@@ -2527,11 +2530,12 @@ ht_oocytes <- draw_oocytes_heatmap(my_genes,
                     clust_method = "centroid")
 
 ht_list <- female_FGC_ht + ht_oocytes + male_FGC_ht + ht_testis
-draw(ht_list, main_heatmap = "logcounts", merge_legend = TRUE, ht_gap = unit(0.2, "cm"))
+draw(ht_list, main_heatmap = "Logcounts", merge_legend = TRUE, 
+     ht_gap = unit(0.2, "cm"))
 
 ```
 
-```{r, echo = FALSE, eval = FALSE}
+```{r, echo = FALSE, eval = TRUE}
 pdf(file = paste0("figs/CT_in_GermCells.pdf"), width = 6, height = 4)
 draw(ht_list, main_heatmap = "Logcounts", 
      merge_legend = TRUE, 
@@ -2543,7 +2547,7 @@ dev.off()
 ```
 
 
-## Gene function
+# Gene function
 
 All CT genes function
 
