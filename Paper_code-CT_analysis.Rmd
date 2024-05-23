@@ -76,6 +76,32 @@ CT_genes_types <- CT_genes %>%
                                      "not_X_not_met")))
 
 
+all_genes_types <- all_genes %>% 
+  dplyr::rename(gene = external_gene_name) %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ 
+                                  "Not methylation")) %>%
+  mutate(Chr = case_when(X_linked ~ "X-linked",
+                         !X_linked ~ "not X")) %>% 
+  mutate(chr_met = case_when(regulated_by_methylation & X_linked ~ "X_met",
+                             !regulated_by_methylation & X_linked ~ "X_not_met",
+                             regulated_by_methylation & !X_linked ~ "not_X_met",
+                             !regulated_by_methylation & !X_linked ~ 
+                               "not_X_not_met")) %>% 
+  mutate(specificity = case_when(GTEX_category == "testis_specific" ~ 
+                                   "Testis specific",
+                                 GTEX_category == "testis_preferential" ~ 
+                                   "Testis preferential",
+                                 GTEX_category == "lowly_expressed" ~ 
+                                   "Undetectable in GTEX")) %>% 
+  mutate(specificity = factor(specificity,
+                              levels = c("Testis specific",  
+                                         "Undetectable in GTEX", 
+                                         "Testis preferential"))) %>% 
+  mutate(chr_met = factor(chr_met, 
+                          levels = c("X_met", "not_X_met", "X_not_met", 
+                                     "not_X_not_met")))
+
 ```
 
 
@@ -218,6 +244,11 @@ specific_to_pref <- all_genes %>%
 #            multimapping_analysis == "testis_specific") %>% 
 #   filter(!not_detected_in_somatic_HPA)
 
+# Genes that were selected with GTEx but leaky so removed (ubiquitary expression)
+all_genes %>% 
+  filter(GTEX_category %in% c("testis_specific", "testis_preferential")) %>% 
+  filter(TCGA_category == "leaky" | CCLE_category == "leaky") %>% 
+  dim()
 
 specific_to_none <- all_genes %>%
   filter(GTEX_category == "testis_specific" |
@@ -277,7 +308,7 @@ print_GTEX_heatmap <- function(genes = NULL, units = "log_TPM",
   
   if (units == "log_TPM") mat <- log1p(mat)
     
-  gene_type <- CT_genes_types %>% 
+  gene_type <- all_genes_types %>% 
     filter(gene %in% genes) 
    
    if (split_rows_by == "regulation") {
@@ -421,10 +452,10 @@ print_TCGA_heatmap <- function(genes = NULL,
   ## Use gene names instead of ENSEMBL IDs
   mat <- SummarizedExperiment::assay(TCGA)
   rownames(mat) <- rowData(TCGA)$external_gene_name
-  mat <- mat[CT_genes$external_gene_name,]
+  mat <- mat[rownames(mat) %in% all_genes$external_gene_name,]
   mat <- log1p(mat)
   
-  gene_type <- CT_genes_types %>% 
+  gene_type <- all_genes_types %>% 
     filter(gene %in% genes) 
   
   rowSplit <- NULL
@@ -577,11 +608,11 @@ print_CCLE_heatmap <- function(genes = NULL,
   ## Use gene names instead of ENSEMBL IDs
   mat <- SummarizedExperiment::assay(CCLE)
   rownames(mat) <- rowData(CCLE)$external_gene_name
-  mat <- mat[CT_genes$external_gene_name,]
+  mat <- mat[rownames(mat) %in% all_genes$external_gene_name, ]
   mat <- log1p(mat)
   
     
-  gene_type <- CT_genes_types %>% 
+  gene_type <- all_genes_types %>% 
     filter(gene %in% genes) 
    
    if (split_rows_by == "regulation") {
@@ -739,6 +770,100 @@ draw(h_list, main_heatmap = "TCGA (logTPM)",
      merge_legend = TRUE)
 dev.off()
 ```
+
+Counter examples
+
+```{r counter_examples}
+genes_not_testis <- all_genes %>% 
+  filter(GTEX_category != "lowly_expressed") %>% 
+  filter(testis_specificity == "not_testis_specific") %>% 
+  pull(external_gene_name) %>% 
+  sample(2)
+
+genes_not_TCGA_activated <- all_genes %>% 
+  filter(GTEX_category != "lowly_expressed") %>% 
+  filter(testis_specificity != "not_testis_specific") %>% 
+  filter(!TCGA_category %in% c("activated", "multimapping_issue")) %>% 
+  pull(external_gene_name) %>% 
+  sample(1)
+
+genes_not_ccle_activated <- all_genes %>% 
+  filter(GTEX_category != "lowly_expressed") %>% 
+  filter(testis_specificity != "not_testis_specific") %>% 
+  filter(CCLE_category %in% c("activated")) %>% 
+  pull(external_gene_name) %>% 
+  sample(1)
+
+my_genes_counter <- c(genes_not_testis, genes_not_TCGA_activated, 
+                      genes_not_ccle_activated)
+
+ht_TCGA_counter <- print_TCGA_heatmap(my_genes_counter, 
+                              fontsize = 4, 
+                              downsample_to_n = 50, 
+                              h_width = 3,
+                              h_height = 8,
+                              tum_type = c("TCGA-SKCM", "TCGA-LUAD",
+                                           "TCGA-HNSC"),
+                              clust_method = "ward.D",
+                              split_rows_by = "specificity")
+
+ht_CCLE_counter <- print_CCLE_heatmap(my_genes_counter, 
+                              downsample_to_n = 50, 
+                              tum_type = c("Skin", "Lung",
+                                           "Head_and_Neck"),
+                              h_width = 3,
+                              h_height = 8,
+                              split_rows_by = "specificity")
+
+
+ht_GTEX_counter <- print_GTEX_heatmap(my_genes_counter, 
+                              row_fontsize = 8,
+                              column_fontsize = 5,
+                              h_width = 5,
+                              h_height = 8,
+                             split_rows_by = "specificity")
+h_list_counter<- ht_GTEX_counter + ht_CCLE_counter + ht_TCGA_counter
+draw(h_list_counter, main_heatmap = "TCGA (logTPM)", ht_gap = unit(c(0.3, 0.01),
+                                                                   "cm"),
+     merge_legend = TRUE)
+
+
+my_genes_leaky <-  all_genes %>% 
+  filter(GTEX_category %in% c("testis_specific", "testis_preferential")) %>% 
+  filter(TCGA_category == "leaky" | CCLE_category == "leaky") %>% 
+   pull(external_gene_name) 
+   
+
+ht_TCGA_leaky <- print_TCGA_heatmap(my_genes_leaky, 
+                              fontsize = 4, 
+                              downsample_to_n = 50, 
+                              h_width = 3,
+                              h_height = 8,
+                              tum_type = c("TCGA-SKCM", "TCGA-LUAD",
+                                           "TCGA-HNSC"),
+                              clust_method = "ward.D",
+                              split_rows_by = "specificity")
+
+ht_CCLE_leaky <- print_CCLE_heatmap(my_genes_leaky, 
+                              downsample_to_n = 50, 
+                              tum_type = c("Skin", "Lung",
+                                           "Head_and_Neck"),
+                              h_width = 3,
+                              h_height = 8,
+                              split_rows_by = "specificity")
+
+
+ht_GTEX_leaky <- print_GTEX_heatmap(my_genes_leaky, 
+                              row_fontsize = 8,
+                              column_fontsize = 5,
+                              h_width = 5,
+                              h_height = 8,
+                             split_rows_by = "specificity")
+h_list_leaky<- ht_GTEX_leaky + ht_CCLE_leaky + ht_TCGA_leaky
+draw(h_list_leaky, main_heatmap = "TCGA (logTPM)", ht_gap = unit(c(0.3, 0.01), "cm"),
+     merge_legend = TRUE)
+```
+
 
 ## Multimapping Fig
 
