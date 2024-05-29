@@ -763,7 +763,7 @@ draw(h_list, main_heatmap = "TCGA (logTPM)", ht_gap = unit(c(0.3, 0.01), "cm"),
      merge_legend = TRUE)
 ```
 
-```{r, eval = TRUE, echo=FALSE}
+```{r, eval = FALSE, echo=FALSE}
 pdf(file = paste0("figs/GTEX_Tumors.pdf"))
 draw(h_list, main_heatmap = "TCGA (logTPM)", 
      ht_gap = unit(c(0.3, 0.01), "cm"),
@@ -948,7 +948,7 @@ draw(h_list, main_heatmap = "log(TPM)", ht_gap = unit(0.3, "cm"),
                  height = unit(5, "cm"))
 ```
 
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Multimapping.pdf"))
 draw(h_list, main_heatmap = "log(TPM)", ht_gap = unit(0.3, "cm"),
                  height = unit(5, "cm"))
@@ -1231,7 +1231,7 @@ draw(h_list, main_heatmap = "Mean \nmethylation", ht_gap = unit(0.5, "cm"),
      merge_legend = TRUE)
 ```
 
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Methylation_classification.pdf"))
 draw(h_list, main_heatmap = "Mean \nmethylation", ht_gap = unit(0.5, "cm"), 
      merge_legend = TRUE)
@@ -1291,7 +1291,7 @@ fig_X_enrichment
 ```
 
 
-```{r, eval = TRUE, echo=FALSE}
+```{r, eval = FALSE, echo=FALSE}
 pdf(file = paste0("figs/X_enrichment.pdf"), width = 7, height = 4)
 cowplot::plot_grid(met_prop_fig, fig_X_enrichment, labels = c('A', 'B'), 
           rel_widths = c(1, 2),
@@ -1401,7 +1401,7 @@ cowplot::plot_grid(left_fig, right_fig,
 ```
 
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Methylation_panel.pdf"), width = 7, height = 4)
 cowplot::plot_grid(left_fig, right_fig, 
           rel_widths = c(2,1),
@@ -1540,7 +1540,7 @@ fig_mean_prop_in_tum <- ggplot(mean_and_prop[!is.na(mean_and_prop$Regulation), ]
 
 fig_mean_prop_in_tum
 ```
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Mean_prop_in_tumors.pdf"), width = 5, height = 4)
 fig_mean_prop_in_tum
 dev.off()
@@ -1830,7 +1830,7 @@ draw(h2, column_title = "CT genes not regulated by methylation",
 
 ```
 
-```{r, echo = FALSE, eval = TRUE}
+```{r, echo = FALSE, eval = FALSE}
 pdf(file = "figs/CT_met_AUC_hypo_TCGA.pdf", height = 2.3, width = 3)
 draw(h1, column_title = "CT genes regulated by methylation",
      column_title_gp = gpar(fontsize = 5), show_heatmap_legend = TRUE,
@@ -1902,7 +1902,7 @@ f1
 f2
 ```
 
-```{r, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/CT_met_AUCscore_hypo_TCGA.pdf"), height = 2.5)
 f1
 dev.off()
@@ -1932,10 +1932,10 @@ germcells <-  c("SSC", "Spermatogonia", "Early_spermatocyte",
 # add meiotic stage to the colData of testis_sce
 testis_sce$stage <- "pre-meiotic"
 testis_sce[, testis_sce$type %in% 
-             c("Early_spermatocyte", "Late_spermatocyte", 
-               "Round_spermatid")]$stage <- "meiotic"
+             c("Early_spermatocyte", "Late_spermatocyte")]$stage <- "meiotic"
 testis_sce[, testis_sce$type %in% 
-             c("Elongated_spermatid", "Sperm")]$stage <- "post-meiotic"
+             c("Round_spermatid","Elongated_spermatid", 
+               "Sperm")]$stage <- "post-meiotic"
 testis_sce[, testis_sce$type %in% 
              c("Macrophage", "Endothelial", "Myoid", "Sertoli", 
                "Leydig")]$stage <- "somatic"
@@ -2660,7 +2660,7 @@ draw(ht_list, main_heatmap = "Logcounts", merge_legend = TRUE,
 
 ```
 
-```{r, echo = FALSE, eval = TRUE}
+```{r, echo = FALSE, eval = FALSE}
 pdf(file = paste0("figs/CT_in_GermCells.pdf"), width = 6, height = 4)
 draw(ht_list, main_heatmap = "Logcounts", 
      merge_legend = TRUE, 
