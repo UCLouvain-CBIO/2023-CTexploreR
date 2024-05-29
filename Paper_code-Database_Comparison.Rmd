@@ -769,6 +769,9 @@ upset(upset_all_database,
       nintersects = 50,
       text.scale = upset_text_size)
 
+Venn_all_database <- Venn(all_database_gene_list)
+Venn_all_database@IntersectionSets[["111111"]]
+
 common <- unique(c(core_ours@IntersectionSets[["11"]], 
                    CTdatabase_ours@IntersectionSets[["11"]], 
                    Wang_ours@IntersectionSets[["11"]], 
@@ -855,6 +858,9 @@ dev.off()
 `r length(common)` genes in our CTexploreR database are found in at least one of
 the other database, which represents `r length(common)/dim(CT_genes)[1] * 100`%.
 
+The 3 genes found in all databases are 
+`r Venn_all_database@IntersectionSets[["111111"]]`.
+
 We have lost `r length(lost_list)` genes in total. Among them, 
 `r dim(not_specific)[1]/length(lost_list)*100`% are not considered testis 
 specific, `r dim(somatic_testis)[1]/length(lost_list)*100`% are expressed in 
@@ -868,7 +874,7 @@ What about new genes in CTexploreR
 
 ```{r new, warning = FALSE}
 new <- CT_genes %>% 
-  filter(!external_gene_name%in%common)
+  filter(external_gene_name %in% Venn_all_database@IntersectionSets[["100000"]])
 
 new
 
