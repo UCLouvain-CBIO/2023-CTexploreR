@@ -483,6 +483,29 @@ CTdatabase_cleaned %>%
 We can see that most of them had no info or were testis-selective (I couldn't
 find on website or paper how they selected categories).
 
+```{r}
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]]) %>% 
+  pull(regulated_by_methylation) %>% 
+  table()
+
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]]) %>% 
+  pull(transcript_biotype) %>% 
+  table()
+table(CT_genes$transcript_biotype)
+#45 lncRNA in all CT_genes
+
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]]) %>% 
+  pull(CpG_promoter) %>% 
+  table()
+table(CT_genes$CpG_promoter)
+
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]])
+
+```
 
 ## CTexploreR VS omics databases
 
@@ -882,11 +905,13 @@ table(new$testis_specificity)
 table(new$X_linked)
 table(new$regulated_by_methylation)
 table(new$X_linked, new$regulated_by_methylation)
+table(new$CpG_promoter)
 TCGA_expression(tumor = "all", genes = new$external_gene_name, 
                 units = "log_TPM")
 TCGA_expression(tumor = "all", 
                 genes = filter(new, X_linked & regulated_by_methylation)$external_gene_name, 
                 units = "log_TPM")
+testis_expression(genes = new$external_gene_name, "germ_cells")
 ```
 
 There are `r dim(new)[1]` new CT genes in CTexploreR. These are all testis
