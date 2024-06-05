@@ -57,7 +57,7 @@ CT_and_CTP_genes <- CT_genes
 CT_genes <- (filter(CT_genes, CT_gene_type == "CT_gene"))
 
 
-upset_text_size <- c(1.5, 1.5, 1.5, 1.5, 1.8, 2)
+upset_text_size <- c(1.5, 1.5, 1.5, 1.5, 2, 2)
  #c(intersection size title, intersection size tick labels, set size title, 
  # set size tick labels, set names, numbers above bars)
 ```
@@ -787,10 +787,14 @@ all_database_gene_list <- list(CTexploreR = CT_genes$external_gene_name,
                                CTdatabase = CTdatabase_cleaned$external_gene_name)
 
 upset_all_database <- fromList(all_database_gene_list)
+
+upset_text_size_all <- c(1.5, 1.5, 1.5, 1.5, 2, 1)
+ #c(intersection size title, intersection size tick labels, set size title, 
+ # set size tick labels, set names, numbers above bars)
 upset(upset_all_database,
       nsets = 6,
       nintersects = 50,
-      text.scale = upset_text_size)
+      text.scale = upset_text_size_all)
 
 Venn_all_database <- Venn(all_database_gene_list)
 Venn_all_database@IntersectionSets[["111111"]]
@@ -865,7 +869,7 @@ transcript_prob <- lost %>%
   dim()
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/upset_all_lost.pdf"))
 upset(upset_all,
       text.scale = upset_text_size)
@@ -874,7 +878,8 @@ dev.off()
 pdf(file = paste0("figs/upset_all_databases.pdf"))
 upset(upset_all_database,
       nsets = 6,
-      nintersects = 50)
+      nintersects = 50,
+      text.scale = upset_text_size_all)
 dev.off()
 ```
 
