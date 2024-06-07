@@ -445,6 +445,8 @@ CTdatabase_lost_upset <-
          filter(CTdatabase_lost,
                 CT_gene_type == "CTP_gene")$external_gene_name)
 
+CTdatabase_lost$external_gene_name[!CTdatabase_lost$external_gene_name %in% unlist(CTdatabase_lost_upset)]
+
 upset_CTdatabase <- fromList(CTdatabase_lost_upset)
 
 upset(upset_CTdatabase,
@@ -467,6 +469,10 @@ genes are flagged as Cancer-Testis preferential in our analysis.
 
 `r (nrow(CTdatabase_lost) - table(CTdatabase_lost$TCGA_category, CTdatabase_lost$CCLE_category)["activated", "activated"])/nrow(CTdatabase_lost)*100`
 % are not properly activated in tumors and/or cancer cell lines.
+
+There is one gene (SPANXN1) that is missing (in 165 from CTdatabase lost) but 
+that is not on the upset plot (164 on upset plot) as it was removed because of 
+the TSS.
 
 In their analysis, they had characterised gene specificity, some being not 
 available, not found in testis, testis-restricted, testis-selective and 
