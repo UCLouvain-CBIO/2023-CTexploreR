@@ -1178,7 +1178,7 @@ DAC_fig <- function(genes = gene_type$gene, multimapping = TRUE,
   if (is.null(scale_lims)) scale_lims <- c(0, quantile(rowMaxs(mat), 0.75))
   
   h <- Heatmap(mat[gene_type$gene, rownames(df_col), drop = FALSE],
-               name = "logTPM",
+               name = "logCounts",
                row_split = factor(gene_type$Regulation, 
                                   levels = c("Methylation", "Not methylation")),
                row_title_gp = gpar(col = Regulation_colors, fontsize = 6),
