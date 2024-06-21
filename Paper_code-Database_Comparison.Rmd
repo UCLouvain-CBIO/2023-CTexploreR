@@ -288,7 +288,7 @@ length(Carter_CT$Gene[!Carter_CT$Gene %in% all_genes$ensembl_gene_id])
 
 1 gene cannot be found in all_genes even by ensemble or gene name
 
-### Burggeman's list
+### Bruggeman's list
 
 Excel file from supplemental data.
 
@@ -453,7 +453,7 @@ upset(upset_CTdatabase,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/CTdatabase_comparison.pdf"))
 plot(CTdatabase_ours, gp = gp)
 upset(upset_CTdatabase,
@@ -579,7 +579,7 @@ upset(upset_Jamin,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/Jamin_comparison.pdf"))
 plot(core_ours, gp = gp)
 upset(upset_Jamin,
@@ -641,7 +641,7 @@ upset(upset_Wang,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/Wang_comparison.pdf"))
 plot(Wang_ours, gp = gp)
 upset(upset_Wang,
@@ -701,7 +701,7 @@ upset(upset_Carter,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/Carter_comparison.pdf"))
 plot(Carter_ours, gp = gp)
 upset(upset_Carter,
@@ -761,7 +761,7 @@ upset(upset_Bruggeman,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+```{r, eval = TRUE, echo = FALSE}
 pdf(file = paste0("figs/Bruggeman_comparison.pdf"))
 plot(Bruggeman_ours, gp = gp)
 upset(upset_Bruggeman,

@@ -280,7 +280,8 @@ all_genes %>%
   pull(testis_specificity) %>% 
   table()
 
-table(all_genes$CT_gene_type) #Before and after TSS verif
+table(all_genes$IGV_backbone)
+table(all_genes$CT_gene_type)
 ```
 
 ## GTEX-TCGA-CCLE
