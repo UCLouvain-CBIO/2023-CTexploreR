@@ -57,7 +57,7 @@ CT_and_CTP_genes <- CT_genes
 CT_genes <- (filter(CT_genes, CT_gene_type == "CT_gene"))
 
 
-upset_text_size <- c(1.5, 1.5, 1.5, 1.5, 2, 2)
+upset_text_size <- c(2, 2, 2, 2, 3.5, 3.5)
  #c(intersection size title, intersection size tick labels, set size title, 
  # set size tick labels, set names, numbers above bars)
 ```
@@ -400,6 +400,11 @@ gp[["Set"]][["Set2"]]$col <-  "paleturquoise4"
 gp[["Set"]][["Set1"]]$col <-  "darkseagreen4"
 gp[["SetText"]][["Set2"]]$col <-  "paleturquoise4"
 gp[["SetText"]][["Set1"]]$col <-  "darkseagreen4"
+gp[["FaceText"]][["11"]]$fontsize <- 30
+gp[["FaceText"]][["10"]]$fontsize <- 30
+gp[["FaceText"]][["01"]]$fontsize <- 30
+gp[["SetText"]][["Set2"]]$fontsize <-  30
+gp[["SetText"]][["Set1"]]$fontsize <- 30
 plot(CTdatabase_ours, gp = gp)
 
 ```
@@ -450,14 +455,17 @@ CTdatabase_lost$external_gene_name[!CTdatabase_lost$external_gene_name %in% unli
 upset_CTdatabase <- fromList(CTdatabase_lost_upset)
 
 upset(upset_CTdatabase,
-      text.scale = upset_text_size)
+      text.scale = upset_text_size, 
+      mb.ratio = c(0.6, 0.4))
 ```
 
 ```{r, eval = TRUE, echo = FALSE}
-pdf(file = paste0("figs/CTdatabase_comparison.pdf"))
+pdf(file = paste0("figs/CTdatabase_comparison.pdf"),
+    paper = "a4r")
 plot(CTdatabase_ours, gp = gp)
 upset(upset_CTdatabase,
-      text.scale = upset_text_size)
+      text.scale = upset_text_size,
+      mb.ratio = c(0.6, 0.4))
 dev.off()
 ```
 
@@ -794,13 +802,14 @@ all_database_gene_list <- list(CTexploreR = CT_genes$external_gene_name,
 
 upset_all_database <- fromList(all_database_gene_list)
 
-upset_text_size_all <- c(1.5, 1.5, 1.5, 1.5, 2, 1)
+upset_text_size_all <- c(2, 2, 2, 2, 3, 2)
  #c(intersection size title, intersection size tick labels, set size title, 
  # set size tick labels, set names, numbers above bars)
 upset(upset_all_database,
       nsets = 6,
       nintersects = 50,
-      text.scale = upset_text_size_all)
+      text.scale = upset_text_size_all,
+      mb.ratio = c(0.6, 0.4))
 
 Venn_all_database <- Venn(all_database_gene_list)
 Venn_all_database@IntersectionSets[["111111"]]
