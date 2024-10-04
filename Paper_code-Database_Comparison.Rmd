@@ -459,12 +459,26 @@ upset(upset_CTdatabase,
       mb.ratio = c(0.6, 0.4))
 ```
 
-```{r, eval = TRUE, echo = FALSE}
-pdf(file = paste0("figs/CTdatabase_comparison.pdf"),
-    paper = "a4r")
-plot(CTdatabase_ours, gp = gp)
+```{r, eval = FALSE, echo = FALSE}
+gp_no_label <- gp
+gp_no_label[["SetText"]][["Set2"]]$fontsize <-  0
+gp_no_label[["SetText"]][["Set1"]]$fontsize <- 0
+gp_no_label[["FaceText"]][["11"]]$fontsize <- 40
+gp_no_label[["FaceText"]][["10"]]$fontsize <- 40
+gp_no_label[["FaceText"]][["01"]]$fontsize <- 40
+pdf(file = paste0("figs/CTdatabase_comparison_venn.pdf"),
+    height = 9, width = 5)
+plot(CTdatabase_ours, gp = gp_no_label)
+dev.off()
+
+upset_text_size_save <- c(3, 2, 3, 2, 4, 4)
+ #c(intersection size title, intersection size tick labels, set size title, 
+ # set size tick labels, set names, numbers above bars)
+
+pdf(file = paste0("figs/CTdatabase_comparison_upset.pdf"),
+    height = 7, width = 8)
 upset(upset_CTdatabase,
-      text.scale = upset_text_size,
+      text.scale = upset_text_size_save,
       mb.ratio = c(0.6, 0.4))
 dev.off()
 ```
@@ -587,7 +601,7 @@ upset(upset_Jamin,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Jamin_comparison.pdf"))
 plot(core_ours, gp = gp)
 upset(upset_Jamin,
@@ -649,7 +663,7 @@ upset(upset_Wang,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Wang_comparison.pdf"))
 plot(Wang_ours, gp = gp)
 upset(upset_Wang,
@@ -709,7 +723,7 @@ upset(upset_Carter,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Carter_comparison.pdf"))
 plot(Carter_ours, gp = gp)
 upset(upset_Carter,
@@ -769,7 +783,7 @@ upset(upset_Bruggeman,
       text.scale = upset_text_size)
 ```
 
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/Bruggeman_comparison.pdf"))
 plot(Bruggeman_ours, gp = gp)
 upset(upset_Bruggeman,
@@ -884,17 +898,23 @@ transcript_prob <- lost %>%
   dim()
 ```
 
-```{r, eval = TRUE, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 pdf(file = paste0("figs/upset_all_lost.pdf"))
 upset(upset_all,
       text.scale = upset_text_size)
 dev.off()
 
-pdf(file = paste0("figs/upset_all_databases.pdf"))
+upset_text_size_all_save <- c(3, 2, 3, 2, 4, 0)
+ #c(intersection size title, intersection size tick labels, set size title, 
+ # set size tick labels, set names, numbers above bars)
+
+pdf(file = paste0("figs/upset_all_databases.pdf"),
+    width = 15, height = 7)
 upset(upset_all_database,
       nsets = 6,
       nintersects = 50,
-      text.scale = upset_text_size_all)
+      text.scale = upset_text_size_all_save,
+      mb.ratio = c(0.55, 0.45))
 dev.off()
 ```
 
