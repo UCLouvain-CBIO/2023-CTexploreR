@@ -1,0 +1,170 @@
+---
+title: "Is there still an enrichment of CT genes on the X chromosome if we take duplicated genes in family into account ? "
+author: "Julie Devis"
+date: "2024-10-18"
+output: 
+  html_document:
+    theme: cosmo
+    df_print : paged
+    highlight : default
+    toc: yes
+    number_sections : TRUE
+    toc_depth : 4
+---
+
+
+```{r, message = FALSE}
+.libPaths("/storage/research/dduv/cbio-lg/rlib/Bioc320", include.site = FALSE)
+library(CTexploreR)
+library(tidyverse)
+```
+
+We've shown that there is an enrichment of CT genes on the X chromosome, and that 
+this enrichment was only seen for genes that are MethDep. However, we wonder if
+this would still be seen if we take into account the fact that many CT genes are
+duplication of each other as they're from the same families. 
+
+
+```{r}
+CT_genes <- CT_genes %>% 
+  filter(CT_gene_type == "CT_gene")
+table(CT_genes$family)
+sum(table(CT_genes$family))
+table(CT_genes$family, CT_genes$chr)
+table(CT_genes$family, CT_genes$regulated_by_methylation)
+
+```
+
+There are 10 families containing 58 genes. 
+
+All members of a family are on the same chromosome (only X and Y) and the same 
+regulated by methylation status. I can thus only keep one member of each family
+and it will be representative of it all. It'll thus remove 46 genes from my 
+list (58 - 10 which is 1 of each family kept)
+
+
+```{r}
+CT_no_duplicated_fam <- CT_genes %>% 
+  filter(!duplicated(family) | is.na(family)) %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ "Not methylation")) %>%
+  mutate(Chr = case_when(X_linked ~ "X-linked",
+                         !X_linked ~ "not X")) 
+dim(CT_no_duplicated_fam)
+
+CT_no_duplicated_fam$chr <- factor(CT_no_duplicated_fam$chr, levels = c(1:22, "X", "Y"))
+
+fig_X_enrichment <- ggplot(CT_no_duplicated_fam %>% 
+                             filter(!is.na(regulated_by_methylation)), 
+                           aes(x = chr, fill = Regulation)) +
+  geom_bar(stat = 'count') +
+  xlab("Chromosome") +
+  ylab("Gene number") +
+  scale_fill_manual(values = c("Methylation" = "indianred2",
+                               "Not methylation"= "cyan4"))+
+  theme_bw() +
+  theme(legend.position = "inside",
+        legend.position.inside = c(0.2, 0.85),
+        #aspect.ratio = 1.5,
+        panel.grid = element_blank())
+        
+fig_X_enrichment
+
+table(CT_no_duplicated_fam$chr)
+
+CT_no_duplicated_fam_rep <- CT_no_duplicated_fam %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  group_by(Regulation, Chr) %>%
+  dplyr::count() %>% 
+  pivot_wider(names_from = Regulation, values_from = n)
+
+CT_no_duplicated_fam_rep
+
+chisq.test(CT_no_duplicated_fam_rep[,-1]) 
+
+```
+
+We can still see that there is more genes on the X chromosome than on others.
+However, in comparison with the analysis not removing duplicated families, 
+the MethDep repartition between X and not X is different, as there is now more 
+genes that are not X (37 out of the initial 39) than those that are X-linked 
+(27 out of the 69). However, pvalue is still significative. 
+
+Could also be done by autosomes/X
+
+```{r}
+CT_genes_X_linked <- CT_no_duplicated_fam %>% 
+  mutate(chr = case_when(chr == "X" ~ "X-linked",
+                           chr == "Y" ~ "Y-linked",
+                           !chr %in% c("X", "Y") ~ "Autosome")) %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  group_by(Regulation, chr) %>%
+  dplyr::count() %>% 
+  pivot_wider(names_from = Regulation, values_from = n)
+CT_genes_X_linked
+```
+
+
+What does it give if we normalise according to the number of gene per chromosome ?
+
+```{r}
+n_genes_per_chr <- all_genes %>% 
+  filter(chr != "MT") %>% 
+  group_by(chr) %>% 
+  summarize(n = n()) %>% 
+  mutate(chr = factor(chr, levels = c(1:22, "X", "Y"))) %>% 
+  arrange(chr)
+
+n_genes <- n_genes_per_chr %>% 
+  filter(!chr %in% "MT") %>% 
+  pull(n) %>% 
+  sum()
+n_genes_autosome <- n_genes_per_chr %>% 
+  filter(chr %in% 1:22) %>% 
+  pull(n) %>% 
+  sum()
+n_genes_X <- n_genes_per_chr %>% 
+  filter(chr %in% "X") %>% 
+  pull(n) 
+n_genes_Y <- n_genes_per_chr %>% 
+  filter(chr %in% "Y") %>% 
+  pull(n) 
+
+n_genes_per_chr_autosome_X_Y <- tibble("chr" = c("Autosome", "X-linked", "Y-linked"), 
+       n = c(n_genes_autosome, n_genes_X, n_genes_Y))
+  
+ggplot(n_genes_per_chr, aes(x = chr, y = n)) +
+  geom_col() +
+  xlab("Chromosome") +
+  ylab("Gene number") +
+  scale_fill_manual(values = c("Methylation" = "indianred2",
+                               "Not methylation"= "cyan4")) +
+  theme_bw() +
+  theme(legend.position = "inside",
+        legend.position.inside = c(0.2, 0.85),
+        #aspect.ratio = 1.5,
+        panel.grid = element_blank()) +
+  ggtitle("Total number of genes per chromosome")
+
+n_genes_per_chr_autosome_X_Y <- n_genes_per_chr_autosome_X_Y %>% 
+  mutate(proba = n / n_genes)
+n_genes_per_chr_autosome_X_Y
+
+
+CT_genes_Met <- colSums(CT_genes_X_linked[, -1])["Methylation"]
+CT_genes_not_Met <- colSums(CT_genes_X_linked[, -1])["Not methylation"]
+CT_genes_X_Y_observed_expected <- CT_genes_X_linked %>% 
+  left_join(n_genes_per_chr_autosome_X_Y %>% 
+              dplyr::select(-n)) %>% 
+  mutate(Expected_MET_if_random = (CT_genes_Met * proba),
+         Expected_NOT_MET_if_random = (CT_genes_not_Met * proba)) %>% 
+  dplyr::select(chr, Methylation, Expected_MET_if_random, `Not methylation`, Expected_NOT_MET_if_random)
+CT_genes_X_Y_observed_expected
+
+chisq.test(CT_genes_X_Y_observed_expected[
+  CT_genes_X_Y_observed_expected$chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")]) 
+```
+
+CT genes regulated by met are enriched on X when taking into account the number 
+of genes per chromosome, verified statistically. 
+
