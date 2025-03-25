@@ -1,0 +1,1244 @@
+---
+title: "CT genes analysis"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: false
+---
+
+
+```{r, echo = FALSE, Results = 'asis'}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+
+
+```{r}
+library("tidyverse")
+library("CTexploreR")
+library("ComplexHeatmap")
+library("circlize")
+library("SummarizedExperiment")
+library("flextable")
+
+set_flextable_defaults(
+font.family = "Arial", font.size = 10,
+border.color = "black",
+padding = 6,
+background.color = "#EFEFEF",
+big.mark = "")
+```
+
+
+
+
+# 
+
+
+```{r}
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 8),
+  title_gp = gpar(col = "black", fontsize = 8, fontface = "bold"),
+  simple_anno_size = unit(0.2, "cm"),
+  row_names_gp = gpar(fontsize = 5),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.2),
+  grid_width = unit(0.2, "cm"),
+  grid_height = unit(0.05, "cm"),
+  legend_height = unit(1, "cm"),
+  use_raster = TRUE,
+               raster_device = "CairoPNG",
+               raster_quality = 10)
+
+legend_colors <- c("#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598",
+"#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F",
+"#9E0142")
+
+TCGA_colors <- c(
+"BRCA" = "midnightblue", "COAD" = "darkorchid2",
+"ESCA" = "gold", "HNSC" = "deeppink2",
+"LUAD" = "seagreen", "LUSC" = "seagreen3",
+"SKCM" = "red3")
+
+CCLE_colors <- c(
+"Lung" = "seagreen3", "Skin" = "red3",
+"Bile_Duct" = "mediumpurple1", "Bladder" = "mistyrose2",
+"Colorectal" = "plum", "Lymphoma" = "steelblue1",
+"Uterine" = "darkorange4", "Myeloma" = "turquoise3",
+"Kidney" = "thistle4",
+"Pancreatic" = "darkmagenta", "Brain" = "palegreen2",
+"Gastric" = "wheat3", "Breast" = "midnightblue",
+"Bone" = "sienna1", "Head_and_Neck" = "deeppink2",
+"Ovarian" = "tan3", "Sarcoma" = "lightcoral",
+"Leukemia" = "steelblue4", "Esophageal" = "khaki",
+"Neuroblastoma" = "olivedrab1")
+
+DAC_colors <- c(
+"B2-1" = "olivedrab2", "HCT116" = "lightcoral",
+"HEK293T" = "seagreen3", "HMLER" = "mediumpurple1",
+"IMR5-75" = "deeppink2", "NCH1681" = "steelblue2",
+"NCH612" = "red3", "TS603" = "darkmagenta")
+
+DAC_treatment_colors <- c("CTL" = "royalblue4", "5-aza" = "maroon3")
+
+Regulation_colors <- c("Methylation" = "indianred2",
+"Not methylation"= "cyan4")
+
+MethDep_colors <- c("MethDep" = "indianred2",
+"Non-MethDep"= "cyan4")
+
+MethDep_full_name_colors <- c("MethDep CG gene" = "indianred2",
+"Non-MethDep CG gene"= "cyan4")
+
+Testis_specificity_colors = c("testis_specific" = "mediumpurple2",
+"testis_preferential" = "goldenrod1",
+"Undetectable in GTEX" = "gray")
+
+
+```
+
+# CT selection
+
+## CT genes and CTP genes
+
+```{r}
+GTEX_data <- CTdata::GTEX_data()
+
+#Function to print GTEX expression with specific annotations
+print_GTEX_heatmap <- function(genes = NULL, units = "log_TPM", 
+                               row_fontsize = 2,
+                               column_fontsize = 6, 
+                               h_width = 3,
+                               h_height = 10,
+                               clust_method = "ward.D",
+                               clustRow = FALSE) {
+  
+  suppressMessages({
+    database <- GTEX_data
+  })
+  
+  database <- database[rowData(database)$external_gene_name %in% genes, ]
+  
+  mat <- assay(database)
+  rownames(mat) <- rowData(database)$external_gene_name
+  
+  if (units == "log_TPM") mat <- log1p(mat)
+    
+  gene_type <- CT_genes %>% 
+    filter(external_gene_name %in% genes) %>% 
+    mutate(gene = factor(external_gene_name, levels = genes)) %>% 
+    arrange(gene)
+
+   rowSplit <- gene_type$testis_specificity
+   rowSplit[rowSplit == "testis_preferential"] <- "CG genes testis-preferential"
+   rowSplit[rowSplit == "testis_specific"] <- "CG genes testis-specific"
+   rowSplit <- factor(rowSplit, levels = c("CG genes testis-specific", "CG genes testis-preferential"))
+  
+  heatmap_colors <- colorRamp2(
+    seq(0, 5, length = 11),                 
+    legend_colors)
+  
+  h <- Heatmap(mat[as.vector(gene_type$gene), ],
+               name = "log(TPM +1)",
+               column_title = "Normal tissues (GTEx)",
+               column_title_gp = gpar(fontsize = 8, face = "bold"),
+               row_split = rowSplit,
+               cluster_row_slices = FALSE,
+               row_title_gp = gpar(fontsize = 8, face = "bold"),
+               border = TRUE,
+               border_gp = gpar(lwd = 0.5),
+               col = heatmap_colors,
+               cluster_rows = clustRow,
+               cluster_columns = TRUE,
+               show_row_dend = FALSE,
+               show_column_dend = FALSE,
+               row_names_gp = gpar(fontsize = row_fontsize),
+               column_names_gp = gpar(fontsize = column_fontsize),
+               column_names_side = "top",
+               row_names_side = "left",
+               width = unit(h_width, "cm"),
+               height = unit(h_height, "cm"),
+               clustering_method_rows = clust_method,
+               use_raster = TRUE,
+               raster_device = "CairoPNG",
+               raster_quality = 10,
+               heatmap_legend_param = legends_param)
+  
+  return(h)
+}
+```
+
+```{r}
+TCGA_TPM <- CTdata::TCGA_TPM()
+
+# Function to print TCGA expression with specific annotations
+# and to downsample the number of tumor samples per tumor type 
+print_TCGA_heatmap <- function(genes = NULL,
+                               tum_type = c("TCGA-SKCM", "TCGA-LUAD", 
+                                            "TCGA-LUSC", "TCGA-COAD", 
+                                            "TCGA-BRCA", "TCGA-HNSC",
+                                            "TCGA-ESCA"),
+                               downsample_to_n = 450,
+                               fontsize = 4, 
+                               clust_method = "ward.D",
+                               h_width = 5, 
+                               h_height = 10,
+                               show_annotation_legend = TRUE,
+                               show_top_annotations = TRUE,
+                               show_row_names = FALSE,
+                               clustRow = FALSE,
+                               clustCol = TRUE) {
+  
+  tcga <- TCGA_TPM
+  tcga <- tcga[,tcga$shortLetterCode != "NT"]
+  
+  ## downsample tumors to have the same number of tumors in each type
+  TCGA <- tcga[, tcga$project_id == tum_type[1]]
+  TCGA <- TCGA[, 1:min(ncol(TCGA), downsample_to_n)]
+  
+  for (tum in tum_type[-1]){
+    tmp <- tcga[, tcga$project_id == tum]
+    tmp <- tmp[, 1:min(ncol(tmp), downsample_to_n)]
+    TCGA <- cbind(TCGA, tmp)
+  }
+  
+  TCGA$project_id <- gsub(pattern = "TCGA-", x = TCGA$project_id, replacement = '')
+  split_by <- factor(TCGA$project_id)
+  
+  column_ha_tumor <- HeatmapAnnotation(
+    TCGA_tumor = TCGA$project_id,
+    border = TRUE,
+    col = list(TCGA_tumor = TCGA_colors),
+    annotation_label = gpar(fontsize = 4),
+    annotation_name_gp = gpar(fontsize = 0),
+    simple_anno_size = unit(0.3, "cm"),
+    annotation_legend_param = legends_param)
+  
+  ## Use gene names instead of ENSEMBL IDs
+  mat <- SummarizedExperiment::assay(TCGA)
+  rownames(mat) <- rowData(TCGA)$external_gene_name
+  mat <- log1p(mat)
+  
+  gene_type <- CT_genes %>% 
+    filter(external_gene_name %in% genes) %>% 
+    mutate(gene = factor(external_gene_name, levels = genes)) %>% 
+    arrange(gene)
+  
+   rowSplit <- gene_type$testis_specificity
+   rowSplit[rowSplit == "testis_preferential"] <- "CG genes testis-preferential"
+   rowSplit[rowSplit == "testis_specific"] <- "CG genes testis-specific"
+   rowSplit <- factor(rowSplit, levels = c("CG genes testis-specific", "CG genes testis-preferential"))
+   
+  # same range as in GTEX
+  heatmap_colors <- colorRamp2(
+    seq(0, 5, length = 11),                 
+    legend_colors)
+  
+  tAnnot <- NULL
+  if (show_top_annotations) tAnnot <- column_ha_tumor
+  
+  Heatmap(mat[as.vector(gene_type$gene), ],
+          name = "TCGA (logTPM)",
+          column_title = "TCGA tumor samples",
+          column_title_gp = gpar(fontsize = 8, face = "bold"),
+          clustering_method_rows = clust_method,
+          clustering_method_columns = clust_method,
+          column_split = split_by,
+          row_gap = unit(c(1), "mm"),
+          col = heatmap_colors,
+          cluster_rows = clustRow,
+          cluster_columns = clustCol,
+          show_row_names = show_row_names,
+          show_column_names = FALSE,
+          show_row_dend = FALSE,
+          show_column_dend = FALSE,
+          column_names_gp = gpar(fontsize = 6),
+          column_names_centered = TRUE,
+          row_names_gp = gpar(fontsize = fontsize),
+          row_names_side = "left",
+          border = TRUE,
+          border_gp = gpar(lwd = 0.5),
+          column_names_side = c("top"),
+          column_names_rot = 90,
+          row_title_gp = gpar(fontsize = 0),
+          top_annotation = tAnnot,
+          row_split = rowSplit,
+          cluster_row_slices = FALSE,
+          width = unit(h_width, "cm"),
+          height = unit(h_height, "cm"),
+          use_raster = TRUE,
+          raster_device = "CairoPNG",
+          raster_quality = 10,
+          heatmap_legend_param = legends_param,
+          show_heatmap_legend = FALSE)
+}
+```
+
+```{r}
+CCLE_data <- CTdata::CCLE_data()
+
+# Function to print CCLE expression with specific annotations
+# Allows to downsample the number of tumor samples pet tumor type to show
+print_CCLE_heatmap <- function(genes = NULL,
+                               Cellosaurus_NCIt_disease = 
+                                 c("Melanoma", "Lung adenocarcinoma"),
+                               h_width = 5,
+                               h_height = 10,
+                               downsample_to_n = 450,
+                               fontsize = 4, 
+                               clust_method = "ward.D",
+                               split_rows_by = "regulation", 
+                               show_annotation_legend = TRUE,
+                               clustRow = FALSE,
+                               clustCol = TRUE){
+  
+  ## downsample tumors to have the same number of tumors in each type
+  ccle <- CCLE_data
+  CCLE <- ccle[, !is.na(ccle$Cellosaurus_NCIt_disease) & 
+                 ccle$Cellosaurus_NCIt_disease == Cellosaurus_NCIt_disease[1]]
+  CCLE <- CCLE[, 1:min(ncol(CCLE), downsample_to_n)]
+  
+  for (tum in Cellosaurus_NCIt_disease[-1]){
+    tmp <- ccle[, !is.na(ccle$Cellosaurus_NCIt_disease) & 
+                 ccle$Cellosaurus_NCIt_disease == tum]
+    tmp <- tmp[, 1:min(ncol(tmp), downsample_to_n)]
+    CCLE <- cbind(CCLE, tmp)
+  }
+  
+  split_by <- factor(CCLE$Cellosaurus_NCIt_disease)
+  
+  column_ha_tumor <- HeatmapAnnotation(
+    CCLE_cell_type = CCLE$Cellosaurus_NCIt_disease,
+    border = TRUE,
+    col = list(CCLE_cell_type = c(
+      "Lung adenocarcinoma" = "seagreen", "Melanoma" = "red3")),
+      annotation_label = gpar(fontsize = 4),
+      annotation_name_gp = gpar(fontsize = 0),
+      simple_anno_size = unit(0.3, "cm"),
+      annotation_legend_param = legends_param)
+  
+  ## Use gene names instead of ENSEMBL IDs
+  mat <- SummarizedExperiment::assay(CCLE)
+  rownames(mat) <- rowData(CCLE)$external_gene_name
+  mat <- log1p(mat)
+    
+   gene_type <- CT_genes %>% 
+    filter(external_gene_name %in% genes) %>% 
+    mutate(gene = factor(external_gene_name, levels = genes)) %>% 
+    arrange(gene)
+   
+
+   rowSplit <- gene_type$testis_specificity
+   rowSplit[rowSplit == "testis_preferential"] <- "CG genes testis-preferential"
+   rowSplit[rowSplit == "testis_specific"] <- "CG genes testis-specific"
+   rowSplit <- factor(rowSplit, levels = c("CG genes testis-specific", "CG genes testis-preferential"))
+  
+    # Same range as GTEX and TCGA
+  heatmap_colors <- colorRamp2(
+    seq(0, 5, length = 11),                 
+    legend_colors)
+  
+  Heatmap(mat[as.vector(gene_type$gene), ],
+          name = "CCLE (logTPM)",
+          column_title = paste0("CCLE tumor cell lines"),
+          column_title_gp = gpar(fontsize = 8, face = "bold"),
+          clustering_method_rows = clust_method,
+          clustering_method_columns = clust_method,
+          column_split = split_by,
+          row_gap = unit(c(1), "mm"),
+          col = heatmap_colors,
+          cluster_rows = clustRow,
+          cluster_columns = clustCol,
+          show_row_names = TRUE,
+          show_column_names = FALSE,
+          show_row_dend = FALSE,
+          show_column_dend = FALSE,
+          column_names_gp = gpar(fontsize = 6),
+          column_names_centered = TRUE,
+          row_names_gp = gpar(fontsize = fontsize),
+          row_names_side = "left",
+          border = TRUE,
+          border_gp = gpar(lwd = 0.5),
+          column_names_side = c("top"),
+          column_names_rot = 90,
+          row_title_gp = gpar(fontsize = 0),
+          top_annotation = column_ha_tumor,
+          #right_annotation = rAnnot,
+          row_split = rowSplit,
+          width = unit(h_width, "cm"),
+          height = unit(h_width, "cm"),
+          use_raster = TRUE,
+          raster_device = "CairoPNG",
+          raster_quality = 10,
+          heatmap_legend_param = legends_param,
+          show_heatmap_legend = FALSE)
+}
+                 
+```
+
+Top panel = Testis specific genes
+
+Bottom panel = Testis preferential genes
+
+```{r}
+my_genes <- CT_genes %>% 
+  pull(external_gene_name)
+
+# Run the heatmap with custRow parameters to define the correct order
+# This order will then be used for GTEX and CCLE heatmaps
+ht_TCGA <- print_TCGA_heatmap(my_genes, 
+                              fontsize = 0, 
+                              downsample_to_n = 50, 
+                              h_width = 3,
+                              h_height = 8,
+                              tum_type = c("TCGA-SKCM", "TCGA-LUAD"),
+                                           #"TCGA-ESCA", "TCGA-LUSC", 
+                                           #"TCGA-COAD",
+                                           #"TCGA-BRCA",
+                                           #"TCGA-HNSC"),
+                              clust_method = "ward.D",
+                              clustRow = TRUE)
+
+indices <- row_order(ht_TCGA)
+gene_order <- CT_genes %>%
+  filter(external_gene_name %in% my_genes) %>%
+  mutate(testis_specificity = factor(testis_specificity, levels = c("testis_specific", "testis_preferential"))) %>% 
+  arrange(testis_specificity) %>%
+  pull(external_gene_name)
+
+TS_order <- gene_order[indices$`CG genes testis-specific`]
+TP_order <- gene_order[indices$`CG genes testis-preferential`]
+my_genes <- c(TS_order, TP_order)
+
+ht_TCGA <- print_TCGA_heatmap(my_genes, 
+                              fontsize = 4, 
+                              downsample_to_n = 50, 
+                              h_width = 3,
+                              h_height = 8,
+                              tum_type = c("TCGA-SKCM", "TCGA-LUAD"), 
+                                           #"TCGA-ESCA", "TCGA-LUSC", 
+                                           #"TCGA-COAD",
+                                           #"TCGA-BRCA",
+                                           #"TCGA-HNSC"),
+                              clust_method = "ward.D",
+                              show_annotation_legend = FALSE,
+                              clustRow = FALSE)
+
+ht_CCLE <- print_CCLE_heatmap(my_genes, 
+                              downsample_to_n = 50, 
+                               Cellosaurus_NCIt_disease = 
+                                c("Melanoma", "Lung adenocarcinoma"),
+                              clustRow = FALSE,
+                              show_annotation_legend = FALSE,
+                              h_width = 3,
+                              h_height = 8,
+                              split_rows_by = "testis_specificity")
+
+
+ht_GTEX <- print_GTEX_heatmap(my_genes, 
+                              row_fontsize = 0,
+                              column_fontsize = 7,
+                              h_width = 8,
+                              h_height = 8,
+                              clustRow = FALSE)
+
+h_list <- ht_GTEX + ht_CCLE + ht_TCGA
+fig <- draw(h_list, main_heatmap = "log(TPM +1)", ht_gap = unit(c(0.3, 0.03), "cm"),
+     merge_legend = TRUE)
+```
+
+
+
+
+
+```{r}
+pdf(file = paste0("../figs/CT_genes_selection.pdf"), width = 8, height = 5)
+fig
+dev.off()
+```
+
+## Figure Multimapping
+
+```{r}
+normal_tissues_multimapping_data <- CTdata::normal_tissues_multimapping_data()
+
+my_genes <- CT_genes %>% 
+  filter(GTEX_category == 'lowly_expressed') 
+my_genes$testis_specificity <- factor(my_genes$testis_specificity, levels = c("testis_specific", "testis_preferential"))
+my_genes <- my_genes %>% arrange(testis_specificity)
+rowSplit <- my_genes$testis_specificity
+
+testis_specificity <- as.matrix(my_genes$testis_specificity)
+rownames(testis_specificity) <- my_genes$gene
+row_ha_TS <- rowAnnotation(testis_specificity = testis_specificity,
+                           annotation_legend_param = legends_param,
+                           simple_anno_size = unit(0.2, "cm"),
+                           col = list(testis_specificity = Testis_specificity_colors),
+                           annotation_name_gp = gpar(fontsize = 0))
+
+without_MP <- log1p(
+  assay(normal_tissues_multimapping_data[my_genes$ensembl_gene_id,], 
+    "TPM_no_multimapping"))
+with_MP <-  log1p(
+  assay(normal_tissues_multimapping_data[my_genes$ensembl_gene_id,], 
+    "TPM_with_multimapping"))
+rownames(without_MP) <- rownames(with_MP) <- 
+  rowData(normal_tissues_multimapping_data)[my_genes$ensembl_gene_id,]$external_gene_name
+# Fix same range of colors for both heatmaps
+full_mat <- cbind(without_MP, with_MP)
+heatmap_colors <- colorRamp2(
+  seq(0, quantile(rowMax(full_mat), 0.8), length = 11), legend_colors)
+
+# Or same range of colors than GTEX heatmap
+# heatmap_colors <- colorRamp2(
+#   seq(0, 6, length = 11), legend_colors)
+
+colnames(without_MP) <- gsub("_", x = str_to_sentence(colnames(without_MP)), ' ')
+colnames(with_MP) <- gsub("_", x = str_to_sentence(colnames(with_MP)), ' ')
+ordered_tissues <- 
+  c("Testis", colnames(without_MP)[- which(colnames(without_MP) == "Testis")])
+h_without_MP <- Heatmap(without_MP[my_genes$external_gene_name, ordered_tissues],
+                        name = "no MP",
+                        column_title = "Multimapped reads excluded",
+                        column_title_gp = gpar(fontsize = 10, face = "bold"),
+                        row_title_gp = gpar(fontsize = 0, face = "bold", angle  = 90),
+                        row_split = rowSplit,
+                        border = TRUE,
+                        border_gp = gpar(lwd = 0.5),
+                        col = heatmap_colors,
+                        cluster_rows = FALSE,
+                        cluster_columns = FALSE,
+                        show_row_dend = FALSE,
+                        show_column_dend = FALSE,
+                        row_names_gp = gpar(fontsize = 4),
+                        column_names_gp = gpar(fontsize = 6),
+                        column_names_side = "top",
+                        row_names_side = "left",
+                        heatmap_width = unit(6, "cm"),
+                        heatmap_height = unit(12, "cm"),
+                        clustering_method_rows = "ward.D",
+                        use_raster = TRUE,
+                        raster_device = "CairoPNG",
+                        raster_quality = 10,
+                        show_heatmap_legend = FALSE,
+                        heatmap_legend_param = legends_param)
+
+h_with_MP <- Heatmap(with_MP[my_genes$external_gene_name, ordered_tissues],
+                     name = "log(TPM)",
+                     column_title = "Multimapped reads counted",
+                     column_title_gp = gpar(fontsize = 10, face = "bold"),
+                     row_title_gp = gpar(fontsize = 0, face = "bold"),
+                     row_split = rowSplit,
+                     border = TRUE,
+                     border_gp = gpar(lwd = 0.5),
+                     col = heatmap_colors,
+                     cluster_rows = TRUE,
+                     cluster_columns = FALSE,
+                     show_row_dend = FALSE,
+                     show_column_dend = FALSE,
+                     row_names_gp = gpar(fontsize = 4),
+                     column_names_gp = gpar(fontsize = 6),
+                     column_names_side = "top",
+                     row_names_side = "left",
+                     heatmap_width = unit(6, "cm"),
+                     heatmap_height = unit(12, "cm"),
+                     clustering_method_rows = "ward.D",
+                     right_annotation = c(row_ha_TS, gap = unit(1, "mm")),
+                     use_raster = TRUE,
+                     raster_device = "CairoPNG",
+                     raster_quality = 10,
+                     heatmap_legend_param = legends_param)
+
+h_list <- h_without_MP + h_with_MP
+draw(h_list, main_heatmap = "no MP", ht_gap = unit(0.3, "cm"),
+                 height = unit(5, "cm"))
+```
+
+```{r}
+pdf(file = paste0("../figs/FigS1_multimapping.pdf"))
+draw(h_list, main_heatmap = "no MP", ht_gap = unit(0.3, "cm"),
+                 height = unit(5, "cm"))
+dev.off()
+```
+
+# Methylation analysis
+
+```{r}
+# Work only on testis_specific genes!
+CT_genes <- CT_genes %>% filter(testis_specificity == "testis_specific")
+```
+
+
+## Fig3B
+
+```{r}
+mean_methylation_in_tissues <- CTdata::mean_methylation_in_tissues()
+
+# Remove genes without enough methylation values for the figure
+met_value_number_per_gene <- tibble(
+  gene = CT_genes$external_gene_name,
+  regulated_by_methylation = CT_genes$regulated_by_methylation,
+  NA_met_values_number = rowSums(
+    is.na(assay(mean_methylation_in_tissues[CT_genes$external_gene_name, ]))))
+my_genes <- met_value_number_per_gene %>% 
+  arrange(desc(NA_met_values_number)) %>% 
+  filter(NA_met_values_number < 5) %>% 
+  pull(gene)
+
+tissue_order <- c("adipose", "colon", "esophagus", "heart", "intestine",  "lung", 
+                  "muscle", "pancreas", "skin", "stomach", 
+                  "thyroid", "testis", "placenta", "sperm" )
+
+database <- mean_methylation_in_tissues
+rowData(database)$external_gene_name <- rownames(database)
+database <- database[my_genes, ]
+colnames(database) = str_to_sentence(colnames(database))
+x <- as_tibble(assay(database), rownames = "gene") %>% 
+  pivot_longer(names_to = "tissue", values_to = "met", -gene) %>% 
+  left_join(CT_genes %>% dplyr::rename(gene = "external_gene_name")) %>% 
+  filter(CT_gene_type == "CT_gene") %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  mutate(tissue = factor(tissue, levels = str_to_sentence(tissue_order))) %>% 
+  mutate(group = case_when(regulated_by_methylation  ~"MethDep CG gene", 
+                           !regulated_by_methylation ~ "Non-MethDep CG gene"))
+
+library(ggh4x)
+strip <- strip_themed(background_x = elem_list_rect(fill = MethDep_colors))
+
+figA <- x %>% 
+  ggplot(aes(x = tissue, y = met, color = group)) +
+  geom_jitter(size = 0.5, width = 0.11) +
+  scale_color_manual(values = MethDep_full_name_colors) +
+  #geom_boxplot(alpha = 0) +
+  #geom_violin(alpha = 0) +
+  #facet_wrap(~ group, ncol = 2) +
+  facet_grid2( ~ group ,  strip = strip) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 18),
+        axis.text.y = element_text(size = 16),
+        aspect.ratio = 0.8,
+        axis.title.y = element_text(size = 18),
+        strip.text = element_text(size = 18, color = "white"),
+        legend.position = "none") +
+  ylab("Promoter mean methylation") +
+  xlab("") 
+        
+figA
+
+pdf(file = paste0("../figs/Fig3B_prom_methylation_in_tissues.pdf"))
+figA
+dev.off()
+
+```
+
+
+
+
+## Proportion of CT genes regulated by methylation
+
+NB: One CT gene could not be classified as regulated or not by methylation 
+
+=> proportion based on 145/146 CT genes
+
+```{r}
+x <- enframe(table(CT_genes %>% 
+  pull(regulated_by_methylation)), name = "Regulation") %>% 
+  left_join(enframe(prop.table(table(CT_genes$regulated_by_methylation)), 
+                    name = "Regulation", value = "Percent")) %>% 
+  mutate(group = case_when(Regulation == TRUE ~ "MethDep", 
+                           Regulation == FALSE ~ "Non\nMethDep"))
+
+
+my_colors <- MethDep_colors
+names(my_colors) <- c("MethDep","Non\nMethDep")
+met_prop_fig <- ggplot(x, aes(x = '', y = value, fill = group)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(y = value/5.5 + c(0, cumsum(value)[-length(value)]), 
+                label = rev(paste0(group, "\n", 
+                               round(Percent * 100), "%"))), 
+            size = 8, 
+            color = "white",
+            face = "bold") +
+            #, size = 6
+  scale_fill_manual(values = my_colors) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        legend.position = "none")
+
+
+met_prop_fig
+
+pdf(file = paste0("../figs/Fig3A_proportion_of_CT_methylated.pdf"))
+met_prop_fig
+dev.off()
+```
+
+
+
+
+
+
+## Fig 3C: DAC heatmap
+
+
+
+```{r}
+DAC_treated_cells_multimapping <- CTdata::DAC_treated_cells_multimapping()
+DAC_treated_cells <- CTdata::DAC_treated_cells()
+
+DAC_fig <- function(genes = gene_type$gene, 
+                    multimapping = TRUE, 
+                    row_fontsize = 2,
+                    units = "log1p",
+                    values_only = FALSE, 
+                    scale_lims = NULL) {
+  
+
+  if (multimapping) {
+    database <- CTdata::DAC_treated_cells_multimapping()
+    #database <- DAC_treated_cells_multimapping
+    
+  } else {
+    database <- CTdata::DAC_treated_cells()
+  }
+  
+  database$treatment[database$treatment == "DAC"] <- "5-aza"
+  database$treatment <- factor(database$treatment, levels = c("CTL", "5-aza"))
+  gene_type <- CT_genes %>% 
+    filter(external_gene_name %in% genes) 
+  
+  # sort genes regulated by met differently than not regulated by met
+  gene_type_met <- gene_type %>%
+    filter(regulated_by_methylation) 
+    
+  gene_type_not_met <- gene_type %>%
+    filter(!regulated_by_methylation) %>%
+    arrange(germline_methylation, somatic_met_level)
+
+  gene_type <- rbind(gene_type_met, gene_type_not_met)
+  rownames(database) <- rowData(database)$external_gene_name
+  
+  gene_type <- gene_type %>% 
+    mutate(regulation = case_when(regulated_by_methylation == TRUE ~ "Methylation",
+                                  regulated_by_methylation == FALSE ~ "Not Methylation")) %>% 
+    mutate(regulation = factor(regulation, 
+                                  levels = c("Methylation", "Not Methylation")))
+
+  
+  mat <- assay(database, units)
+  
+  df_col <- data.frame("cell" = colData(database)$cell,
+                       "treatment" = colData(database)$treatment)
+  rownames(df_col) <- rownames(colData(database))
+  df_col <- df_col[order(df_col$cell, df_col$treatment), ]
+  
+  column_ha_cell <- HeatmapAnnotation(
+    cell = df_col$cell,
+    border = FALSE, 
+    #border_gp = gpar(lwd = 0.1),
+    simple_anno_size = unit(0.2, "cm"),
+    annotation_legend_param = legends_param,
+    col = list("cell" = DAC_colors),
+    annotation_name_gp = gpar(fontsize = 0))  
+  
+  column_ha_treatment <- HeatmapAnnotation(
+    treatment = df_col$treatment,
+    col = list(treatment = c("CTL" = "dodgerblue3", "5-aza" = "firebrick1")),
+    annotation_legend_param = legends_param,
+    border = FALSE, 
+    simple_anno_size = unit(0.2, "cm"),
+    annotation_name_gp = gpar(fontsize = 0))  
+  
+  Regulation <- as.matrix(gene_type$regulated_by_methylation)
+  rownames(Regulation) <- gene_type$gene
+  row_ha_regulation <- rowAnnotation(Regulation = Regulation,
+                                     annotation_legend_param = legends_param,
+                                     simple_anno_size = unit(0.2, "cm"),
+                                     col = list(Regulation = Regulation_colors),
+                                     annotation_name_gp = gpar(fontsize = 0))
+  
+ 
+  if (is.null(scale_lims)) scale_lims <- c(0, quantile(rowMaxs(mat), 0.75))
+  
+  h <- Heatmap(mat[gene_type$external_gene_name, rownames(df_col), drop = FALSE],
+               name = "logCounts",
+               row_split = gene_type$regulation,
+               left_annotation = rowAnnotation(
+                       regulation = anno_block(
+                         gp = gpar(fill = c(my_colors[1], my_colors[2]),
+                                   col = "black", lwd = 0.1),
+                         width = unit(c(0.5), "cm"),
+                         labels = c("MethDep",  
+                                    "Non\nMethDep"), 
+                         labels_gp = gpar(col = "white", fontsize = 5, face = "bold"))),
+               row_title_gp = gpar(col = my_colors, fontsize = 0),
+               border = TRUE,
+               border_gp = gpar(lwd = 0.2),
+               column_title = "DAC induction in cell lines",
+               column_title_gp = gpar(fontsize = 6),
+               column_split = factor(df_col$cell),
+               cluster_row_slices = FALSE,
+               col = colorRamp2(seq(scale_lims[1], scale_lims[2], length = 11),
+                                legend_colors),
+               cluster_rows = TRUE,
+               show_row_dend = FALSE,
+               show_row_names = FALSE,
+               clustering_method_rows = "ward.D",
+               show_column_names = FALSE,
+               cluster_columns = FALSE,
+               row_names_gp = gpar(fontsize = row_fontsize),
+               top_annotation = c(column_ha_cell, column_ha_treatment),
+               heatmap_width = unit(4, "cm"),
+               heatmap_height = unit(4, "cm"),
+               use_raster = TRUE,
+               raster_device = "CairoPNG",
+               raster_quality = 10,
+               heatmap_legend_param = legends_param)
+  
+  return(h)
+}
+```
+
+
+
+```{r}
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 4),
+  title_gp = gpar(col = "black", fontsize = 4, fontface = "bold"),
+  simple_anno_size = unit(0.2, "cm"),
+  row_names_gp = gpar(fontsize = 5),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.2),
+  grid_width = unit(0.2, "cm"),
+  grid_height = unit(0.05, "cm"),
+  legend_height = unit(1, "cm"),
+  use_raster = TRUE,
+               raster_device = "CairoPNG",
+               raster_quality = 10)
+
+
+fs <- 1.8
+my_genes <- CT_genes %>% 
+  filter(!is.na(DAC_induced))
+
+h_DAC <- DAC_fig(my_genes$external_gene_name, 
+                 multimapping = TRUE, 
+                 units = "log1p",
+                 row_fontsize = fs)
+
+h_DAC             
+```
+
+
+```{r}
+pdf(file = paste0("../figs/Fig3C_methylation_classification.pdf"))
+h_DAC
+dev.off()
+```
+
+
+
+
+# CT genes regulated by met are enriched on X
+
+
+```{r}
+CT_genes$chr <- factor(CT_genes$chr, levels = c(1:22, "X", "Y"))
+
+fig_X_enrichment <- ggplot(CT_genes %>% 
+                             filter(!is.na(regulated_by_methylation)) %>% 
+  mutate(group = case_when(regulated_by_methylation == TRUE ~"MethDep", 
+                           regulated_by_methylation == FALSE ~ "Non-MethDep")), 
+                           aes(x = chr, fill = group)) +
+  geom_bar(stat = 'count') +
+  xlab("Chromosome") +
+  ylab("Gene number") +
+  scale_fill_manual(values = MethDep_colors)+
+  theme_bw() +
+  theme(legend.position = "inside",
+        legend.position.inside = c(0.2, 0.85),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 12),
+        #aspect.ratio = .5,
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        panel.grid = element_blank())
+        
+fig_X_enrichment
+```
+
+```{r}
+pdf(file = paste0("../figs/Fig4A_enrichment_on_X.pdf"), height = 4, width = 6)
+fig_X_enrichment
+dev.off()
+```
+
+
+```{r}
+CT_genes_X_linked <- CT_genes %>% 
+  mutate(Regulation = case_when(regulated_by_methylation == TRUE ~ "Methylation",
+                                regulated_by_methylation == FALSE ~ "Not Methylation")) %>% 
+  mutate(Chr = case_when(X_linked ~ "X-linked",
+                         !X_linked ~ "not X")) %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  group_by(Regulation, Chr) %>%
+  dplyr::count() %>% 
+  pivot_wider(names_from = Regulation, values_from = n)
+
+flextable(CT_genes_X_linked, 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(
+    as_paragraph(
+    as_chunk("CT genes", props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))
+    ), word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+
+
+chisq.test(CT_genes_X_linked[,-1], correct = FALSE) 
+```
+
+idem but just comparing CT-X-linked to CT-autosomal
+
+```{r}
+
+CT_genes_X_linked <- CT_genes %>% 
+  mutate(Regulation = case_when(regulated_by_methylation == TRUE ~ "Methylation",
+                                regulated_by_methylation == FALSE ~ "Not Methylation")) %>% 
+  mutate(Chr = case_when(chr == "X" ~ "X-linked",
+                           chr == "Y" ~ "Y-linked",
+                           !chr %in% c("X", "Y") ~ "Autosome")) %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  group_by(Regulation, Chr) %>%
+  dplyr::count() %>% 
+  pivot_wider(names_from = Regulation, values_from = n)
+
+
+flextable(CT_genes_X_linked, 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(
+    as_paragraph(
+    as_chunk("CT genes", props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))
+    ), word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+
+
+chisq.test(CT_genes_X_linked[1:2, c("Methylation", "Not Methylation")], correct = FALSE) 
+```
+
+
+### Idem but normalised by number of gene per chromosome
+
+```{r}
+n_genes_per_chr <- all_genes %>% filter(chr != "MT") %>% 
+  group_by(chr) %>% 
+  summarize(n = n()) %>% 
+  mutate(Chr = factor(chr, levels = c(1:22, "X", "Y"))) %>% 
+  arrange(Chr)
+
+n_genes <- n_genes_per_chr %>% 
+  filter(!chr %in% "MT") %>% 
+  pull(n) %>% sum()
+n_genes_autosome <- n_genes_per_chr %>% 
+  filter(chr %in% 1:22) %>% 
+  pull(n) %>% sum()
+n_genes_X <- n_genes_per_chr %>% 
+  filter(chr %in% "X") %>% 
+  pull(n) 
+n_genes_Y <- n_genes_per_chr %>% 
+  filter(chr %in% "Y") %>% 
+  pull(n) 
+
+n_genes_per_chr_autosome_X_Y <- tibble("Chr" = c("Autosome", "X-linked", "Y-linked"), 
+       n = c(n_genes_autosome, n_genes_X, n_genes_Y))
+  
+ggplot(n_genes_per_chr, aes(x = chr, y = n)) +
+  geom_col() +
+  xlab("Chromosome") +
+  ylab("Gene number") +
+  scale_fill_manual(values = Regulation_colors) +
+  theme_bw() +
+  theme(legend.position = "inside",
+        legend.position.inside = c(0.2, 0.85),
+        #aspect.ratio = 1.5,
+        panel.grid = element_blank()) +
+  ggtitle("Total number of genes per chromosome")
+
+
+n_genes_per_chr_autosome_X_Y <- n_genes_per_chr_autosome_X_Y %>% 
+  mutate(proba = n / n_genes)
+DT::datatable(n_genes_per_chr_autosome_X_Y)
+
+CT_genes_Met <- colSums(CT_genes_X_linked[, -1])["Methylation"]
+CT_genes_not_Met <- colSums(CT_genes_X_linked[, -1])["Not Methylation"]
+
+
+CT_genes_X_Y_observed_expected <- CT_genes_X_linked %>% 
+  left_join(n_genes_per_chr_autosome_X_Y %>% dplyr::select(-n)) %>% 
+  mutate(Expected_MET_if_random = (CT_genes_Met * proba),
+         Expected_NOT_MET_if_random = (CT_genes_not_Met * proba)) %>% 
+  dplyr::select(Chr, Methylation, Expected_MET_if_random, `Not Methylation`, Expected_NOT_MET_if_random)
+
+flextable(CT_genes_X_Y_observed_expected, 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(
+    as_paragraph(
+    as_chunk("CT genes", props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))
+    ), word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+```
+
+
+**=> CT genes regulated by met are enriched on X when taking into account the number of genes per chromosome:**
+
+```{r}
+chisq.test(CT_genes_X_Y_observed_expected[
+  CT_genes_X_Y_observed_expected$Chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")], correct = FALSE) 
+```
+
+pvalue = `r chisq.test(CT_genes_X_Y_observed_expected[CT_genes_X_Y_observed_expected$Chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")], correct = FALSE)$p.value`
+
+
+
+```{r}
+fisher.test(CT_genes_X_Y_observed_expected[
+  CT_genes_X_Y_observed_expected$Chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")]) 
+```
+
+
+pvalue = `r fisher.test(CT_genes_X_Y_observed_expected[CT_genes_X_Y_observed_expected$Chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")])$p.value`
+
+
+**=> But CT genes NOT regulated by met are NOT enriched on X when taking into account the number of genes per chromosome:**
+
+```{r}
+chisq.test(CT_genes_X_Y_observed_expected[
+  CT_genes_X_Y_observed_expected$Chr %in% c("Autosome", "X-linked"), c("Not Methylation", "Expected_NOT_MET_if_random")], correct = FALSE) 
+```
+
+
+```{r}
+fisher.test(CT_genes_X_Y_observed_expected[
+  CT_genes_X_Y_observed_expected$Chr %in% c("Autosome", "X-linked"), c("Not Methylation", "Expected_NOT_MET_if_random")])
+```
+
+
+
+
+
+## CT genes are enriched among Testis-specific genes regulated by methylation
+
+
+
+
+```{r}
+all_genes_chr <- all_genes %>% 
+  mutate(chr = case_when(chr == "X" ~ "X-linked",
+                           chr == "Y" ~ "Y-linked",
+                           !chr %in% c("X", "Y") ~ "Autosome")) 
+
+
+TS_genes <- all_genes_chr %>% 
+  filter(testis_specificity == "testis_specific")
+```
+
+
+`r nrow(TS_genes %>% filter(!is.na(regulated_by_methylation)))` Testis-specific genes 
+(removing the 17 genes from the `r nrow(TS_genes)` genes that could not be 
+classified as regulated or not by methylation)
+
+```{r}
+prop_CT_among_TS <- TS_genes %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ "Not Methylation")) %>% 
+ # mutate(Regulation = factor(Regulation, levels = c("Not Methylation", "Methylation"))) %>% 
+  mutate(`Testis-specific genes` = case_when(CT_gene_type == "CT_gene" ~ "CT gene",
+                             CT_gene_type != "CT_gene" ~ "other")) %>% 
+  group_by(Regulation, `Testis-specific genes`) %>% 
+  dplyr::count() %>% 
+  pivot_wider(names_from = "Regulation", values_from = "n")
+
+
+flextable(prop_CT_among_TS, 
+                     cwidth = 1.5,
+                     cheight = 0.25)
+   
+
+chisq.test(prop_CT_among_TS[,-1], correct = FALSE) 
+```
+
+**pvalue = `r chisq.test(prop_CT_among_TS[,-1], correct = FALSE)$p.value`**
+
+
+## Testis-specific genes (including CT genes) regulated by methylation are enriched on X
+
+```{r}
+TS_genes_X <- TS_genes %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ "Not methylation")) %>% 
+  filter(!is.na(Regulation)) %>% 
+  #filter(chr != "Y-linked") %>% 
+  group_by(chr, Regulation) %>% 
+  dplyr::count() %>% 
+  pivot_wider(names_from = Regulation, values_from = "n")
+
+flextable(TS_genes_X, 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(
+    as_paragraph(
+    as_chunk("Testis-specific genes", props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))
+    ), word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+
+TS_genes_X_Y <- TS_genes %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ "Not methylation")) %>% 
+  filter(!is.na(Regulation)) %>% 
+  #filter(chr != "Y-linked") %>% 
+  group_by(chr, Regulation) %>% 
+  dplyr::count() %>% 
+  pivot_wider(names_from = Regulation, values_from = "n")
+
+chisq.test(TS_genes_X_Y[TS_genes_X_Y$chr %in% c("Autosome", "X-linked"), c("Methylation", "Not methylation")], correct = FALSE)  
+```
+
+pvalue = `r chisq.test(TS_genes_X[TS_genes_X_Y$chr %in% c("Autosome", "X-linked"),c("Methylation", "Not methylation")], correct = FALSE)$p.value`
+
+**Idem but Normalised by number of gene per chromosome:**
+
+```{r}
+TS_genes_Met <- colSums(TS_genes_X_Y[, -1])["Methylation"]
+TS_genes_not_Met <- colSums(TS_genes_X_Y[, -1])["Not methylation"]
+
+TS_genes_X_Y_observed_expected <- TS_genes_X_Y %>% 
+  left_join(n_genes_per_chr_autosome_X_Y %>% dplyr::select(-n) %>% dplyr::rename(chr = Chr)) %>% 
+  mutate(Expected_MET_if_random = (TS_genes_Met * proba),
+         Expected_NOT_MET_if_random = (TS_genes_not_Met * proba)) %>% 
+  dplyr::select(chr, Methylation, Expected_MET_if_random, `Not methylation`, Expected_NOT_MET_if_random)
+
+flextable(TS_genes_X_Y_observed_expected, 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(
+    as_paragraph(
+    as_chunk("Testis-specific genes", props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))
+    ), word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+```
+
+**=> Testis-specific genes regulated by methylation are significantly enriched on X when taking into account the number of genes per chromosome:**
+
+```{r}
+chisq.test(TS_genes_X_Y_observed_expected[
+  TS_genes_X_Y_observed_expected$chr %in% c("Autosome", "X-linked"), 
+  c("Methylation", "Expected_MET_if_random")], correct = FALSE) 
+```
+
+pvalue = `r chisq.test(TS_genes_X_Y_observed_expected[TS_genes_X_Y_observed_expected$chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")], correct = FALSE)$p.value`)
+
+
+**=> But testis-specific genes NOT regulated by methylation are not enriched on X when taking into account the number of genes per chromosome:**
+
+```{r}
+chisq.test(TS_genes_X_Y_observed_expected[
+  TS_genes_X_Y_observed_expected$chr %in% c("Autosome", "X-linked"), 
+  c("Not methylation", "Expected_NOT_MET_if_random")], correct = FALSE) 
+```
+
+pvalue = `r chisq.test(TS_genes_X_Y_observed_expected[TS_genes_X_Y_observed_expected$chr %in% c("Autosome", "X-linked"), c("Not methylation", "Expected_NOT_MET_if_random")], correct = FALSE)$p.value`)
+
+
+
+## Testis-specific genes (other than CT genes) regulated by methylation are also enriched on X
+
+```{r}
+TS_other_X <- TS_genes %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ "Not methylation")) %>% 
+ filter(!is.na(Regulation)) %>% 
+  filter(CT_gene_type == "other") %>% 
+  #filter(chr != "Y-linked") %>% 
+  group_by(chr, Regulation) %>% 
+  dplyr::count() %>% 
+  pivot_wider(names_from = Regulation, values_from = "n")
+
+TS_genes_other_Met <- colSums(TS_other_X[, -1])["Methylation"]
+TS_genes_other_not_Met <- colSums(TS_other_X[, -1])["Not methylation"]
+
+TS_other_X <- TS_other_X %>% 
+  left_join(n_genes_per_chr_autosome_X_Y %>% dplyr::select(-n) %>% dplyr::rename(chr = Chr)) %>% 
+  mutate(Expected_MET_if_random = (TS_genes_other_Met * proba),
+         Expected_NOT_MET_if_random = (TS_genes_other_not_Met * proba)) %>% 
+  dplyr::select(chr, Methylation, Expected_MET_if_random, `Not methylation`, Expected_NOT_MET_if_random)
+
+flextable(TS_other_X, 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(
+    as_paragraph(
+    as_chunk("Testis-specific genes (other than CT genes)", props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))
+    ), word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+```
+
+**=> Testis-specific genes (other than CT genes) regulated by methylation are also enriched on X:**
+
+
+```{r}
+chisq.test(TS_other_X[TS_other_X$chr %in% c("Autosome", "X-linked"),
+                      c("Methylation", "Expected_MET_if_random")], correct = FALSE)  
+```
+
+pvalue = `r chisq.test(TS_other_X[TS_other_X$chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")], correct = FALSE)$p.value`
+
+```{r}
+fisher.test(TS_other_X[TS_other_X$chr %in% c("Autosome", "X-linked"),
+                      c("Methylation", "Expected_MET_if_random")])  
+```
+
+
+pvalue = `r fisher.test(TS_other_X[TS_other_X$chr %in% c("Autosome", "X-linked"), c("Methylation", "Expected_MET_if_random")])$p.value`
+
+**=> Testis-specific genes (other than CT genes) NOT regulated by methylation are NOT enriched on X:**
+
+
+```{r}
+chisq.test(TS_other_X[TS_other_X$chr %in% c("Autosome", "X-linked"),
+                      c("Not methylation", "Expected_NOT_MET_if_random")], correct = FALSE)   
+```
+
+
+
+# session info
+
+```{r}
+sessionInfo()
+```
+

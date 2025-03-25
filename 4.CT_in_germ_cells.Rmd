@@ -1,0 +1,1714 @@
+---
+title: "CT genes analysis in germ cells"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float: false
+---
+
+
+
+```{r, echo = FALSE, Results = 'asis'}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+
+
+```{r}
+library("tidyverse")
+library("CTexploreR")
+library("ComplexHeatmap")
+library("circlize")
+library("SummarizedExperiment")
+library("flextable")
+
+set_flextable_defaults(
+font.family = "Arial", font.size = 10,
+border.color = "black",
+padding = 6,
+background.color = "#EFEFEF",
+big.mark = "")
+```
+
+
+# 
+
+```{r}
+all_genes_types <- all_genes %>% 
+  dplyr::rename(gene = external_gene_name) %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ "Not methylation")) %>%
+  mutate(Chr = case_when(X_linked ~ "X-linked",
+                         !X_linked ~ "not X")) %>%  
+  mutate(chromosome = case_when(chr == "X" ~ "X-linked",
+                                chr == "Y" ~ "Y-linked",
+                                !chr %in% c("X", "Y") ~ "Autosome")) %>% 
+  mutate(chr_met = case_when(regulated_by_methylation & X_linked ~ "X_met",
+                             !regulated_by_methylation & X_linked ~ "X_not_met",
+                             regulated_by_methylation & !X_linked ~ "not_X_met",
+                             !regulated_by_methylation & !X_linked ~ "not_X_not_met")) %>% 
+  mutate(GTEX_specificity = case_when(GTEX_category == "testis_specific" ~ "Testis specific",
+                                        GTEX_category == "testis_preferential" ~ "Testis preferential",
+                                        GTEX_category == "lowly_expressed" ~ "Undetectable in GTEX")) %>% 
+  mutate(testis_specificity = case_when(testis_specificity == "testis_specific" ~ "Testis specific",
+                                        testis_specificity == "testis_preferential" ~ "Testis preferential")) %>%
+  mutate(testis_specificity = factor(testis_specificity, levels = c("Testis specific", "Testis preferential"))) %>% 
+  mutate(chr_met = factor(chr_met, 
+                          levels = c("X_met", "not_X_met", "X_not_met", "not_X_not_met"))) %>% 
+  mutate(met_3_groups = case_when(regulated_by_methylation & X_linked ~ "Methylation X-linked",
+                                   regulated_by_methylation & !X_linked ~ "Methylation not X-linked",
+                             !regulated_by_methylation ~ "Not Methylation")) %>% 
+  mutate(met_3_groups = factor(met_3_groups, 
+                          levels = c("Methylation X-linked", "Methylation not X-linked", "Not Methylation"))) 
+
+CT_genes_types <- all_genes_types %>%
+  filter(CT_gene_type == "CT_gene")
+
+CT_genes <- CT_genes %>% 
+  filter(CT_gene_type == "CT_gene")
+```
+
+
+```{r}
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 4),
+  title_gp = gpar(col = "black", fontsize = 5, fontface = "bold"),
+  simple_anno_size = unit(0.2, "cm"),
+  row_names_gp = gpar(fontsize = 3),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.2),
+  grid_width = unit(0.2, "cm"),
+  grid_height = unit(0.05, "cm"),
+  legend_height = unit(1, "cm"),
+  use_raster = TRUE,
+               raster_device = "CairoPNG",
+               raster_quality = 10)
+
+legend_colors <- c("#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598",
+"#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F",
+"#9E0142")
+
+TCGA_colors <- c(
+"BRCA" = "midnightblue", "COAD" = "darkorchid2",
+"ESCA" = "gold", "HNSC" = "deeppink2",
+"LUAD" = "seagreen", "LUSC" = "seagreen3",
+"SKCM" = "red3")
+
+CCLE_colors <- c(
+"Lung" = "seagreen3", "Skin" = "red3",
+"Bile_Duct" = "mediumpurple1", "Bladder" = "mistyrose2",
+"Colorectal" = "plum", "Lymphoma" = "steelblue1",
+"Uterine" = "darkorange4", "Myeloma" = "turquoise3",
+"Kidney" = "thistle4",
+"Pancreatic" = "darkmagenta", "Brain" = "palegreen2",
+"Gastric" = "wheat3", "Breast" = "midnightblue",
+"Bone" = "sienna1", "Head_and_Neck" = "deeppink2",
+"Ovarian" = "tan3", "Sarcoma" = "lightcoral",
+"Leukemia" = "steelblue4", "Esophageal" = "khaki",
+"Neuroblastoma" = "olivedrab1")
+
+DAC_colors <- c(
+"B2-1" = "olivedrab2", "HCT116" = "lightcoral",
+"HEK293T" = "seagreen3", "HMLER" = "mediumpurple1",
+"IMR5-75" = "deeppink2", "NCH1681" = "steelblue2",
+"NCH612" = "red3", "TS603" = "darkmagenta")
+
+DAC_treatment_colors <- c("CTL" = "royalblue4", "5-aza" = "maroon3")
+
+Regulation_colors <- c("Methylation" = "indianred2",
+"Not methylation"= "cyan4")
+
+chr_met_colors = c("X_met" = "mediumorchid2",
+"X_not_met" = "mediumseagreen",
+"not_X_met"= "darkorange1",
+"not_X_not_met" = "dodgerblue1")
+
+Chr_colors = c("X-linked" = "deeppink3", "not X" = "lightgreen")
+Chr_colors_with_Y = c("X-linked" = "deeppink3", "Autosome" = "lightgreen", "Y-linked" = "black")
+
+GTEX_specificity_colors = c("Testis specific" = "green",
+                              "Testis preferential" = "purple",
+                              "Undetectable in GTEX" = "gray")
+
+Testis_specificity_colors = c("Testis specific" = "mediumpurple2",
+"Testis preferential" = "goldenrod1",
+"Undetectable in GTEX" = "gray")
+
+# Testis_specificity_colors = c("Testis specific" = "green",
+#                               "Testis preferential" = "purple")
+
+testis_colors <- c(
+  "Spermatogonial stem cells" = "floralwhite", "Spermatogonia" = "moccasin",
+  "Early spermatocyte" = "gold",
+  "Late spermatocyte" = "orange",
+  "Round spermatid" = "red2",
+  "Elongated spermatid" = "darkred", "Sperm" = "purple")
+
+Fetal_cell_colors = c("Primordial germ Cells" = "lightblue1",
+                      "Primordial germ Cells (F)" = "pink",
+                      "Fetal germ cells (F)" = "pink3",
+                      "Oogonia" = "palevioletred3",
+                      "Oocytes" = "mediumorchid4",
+                      "Primordial germ Cells" = "lightblue1",
+                      "Primordial germ Cells (M)" = "lightblue1",
+                      "Fetal germ cells" = "steelblue3",
+                      "Fetal germ cells (M)" = "steelblue3",
+                      "Pre-spermatogonia" = "blue",
+                      "soma (F)" = "gray",
+                      "soma (M)" = "gray30")
+  
+
+Fetal_cellType_colors = c(
+                      "Mitotic FGC (F)" = "pink3",
+                      "Meiotic FGC (F)" = "palevioletred3",
+                      "Oogenesis FGC (F)" = "mediumorchid4",
+                      "Mitotic FGC (M)" = "steelblue3",
+                      "Mitotic arrested (M)" = "blue",
+                      "soma (F)" = "gray",
+                      "soma (M)" = "gray30")
+
+oocytes_colors <- c("Growing oocytes" = "mediumpurple1",
+"Fully grown oocytes" ="lightgreen",
+"Metaphase I" = "mediumvioletred",
+"Metaphase II" = "mediumpurple4")
+
+sex_colors <- c("F" = "deeppink", "M"= "steelblue")
+
+stage_colors <- c( "pre-meiotic" = "peachpuff",
+"meiotic"= "lightsalmon",
+"post-meiotic" = "maroon4",
+"somatic" = "gray")
+
+Stage_colors <- c( "Fetal" = "lightgreen",
+"Adult"= "steelblue")
+
+
+MethDep_colors <- c("MethDep" = "indianred2",
+"Non-MethDep"= "cyan4")
+
+CT_group_colors = c("X-linked MethDep" = "indianred2", 
+                    "Not X MethDep" = "darksalmon",
+                  "Non-MethDep" =   "cyan4")
+```
+
+
+
+# Fig6A and 7A: Heatmaps
+
+
+```{r}
+testis_sce <- CTdata::testis_sce()
+
+testis_sce <- testis_sce[CT_genes$external_gene_name[
+  CT_genes$external_gene_name %in% rownames(testis_sce)],]
+
+missing <- CT_genes$external_gene_name[
+  !CT_genes$external_gene_name %in% rownames(testis_sce)]
+```
+
+- `r length(missing)` genes not detected at all in adult testis scRNAseq:
+
+`r missing` 
+
+
+```{r}
+# pool Sperm1 and Sperm2 types
+levels(testis_sce$type)[c(7,8)] <- "Sperm"
+germcells <-  c("SSC", "Spermatogonia", "Early_spermatocyte", 
+                "Late_spermatocyte", "Round_spermatid", 
+                "Elongated_spermatid", "Sperm")
+
+testis_sce <- testis_sce[, testis_sce$type %in% germcells]
+testis_sce$type <- factor(testis_sce$type, levels = germcells)
+
+
+# Keep genes detected in at least x % of germ cells 
+# ! Each cell type is present at different proportion 
+# (much more sperm cells than SSC cells for instance)
+# table(testis_sce$type)
+# => Calculate for each gene the proportion of expressing cells 
+# (> testis_logcount_thr) and keep genes expressed in at least x% of a cell type
+# instead of just keeping genes expressed in at least x% of cells.
+testis_percent_thr <- 0.05
+testis_logcount_thr <- 0
+
+percent_of_expressing_cells <- 
+  tibble(gene = rownames(testis_sce),
+         prop = rowSums(assay(testis_sce[, testis_sce$type %in% germcells[1]], 
+                              "logcounts") > testis_logcount_thr) / 
+           dim(testis_sce[, testis_sce$type %in% germcells[1]])[2])
+names(percent_of_expressing_cells) <- c("gene", germcells[1])
+
+for (cell in germcells[-1]) {
+  tmp <- 
+    tibble(gene = rownames(testis_sce),
+           prop = rowSums(assay(testis_sce[, testis_sce$type %in% cell], 
+                                           "logcounts") > testis_logcount_thr) / 
+             dim(testis_sce[, testis_sce$type %in% cell])[2])
+  names(tmp) <- c("gene", cell)
+  percent_of_expressing_cells <- left_join(percent_of_expressing_cells, tmp)
+}
+
+kept_genes <- rownames(testis_sce)[rowSums(percent_of_expressing_cells[,-1] > testis_percent_thr) > 0]
+```
+
+
+- `r length(kept_genes)` genes are detected in at least `r testis_percent_thr * 100`% of a specific testis cell type
+
+- Genes removed (detected in less than `r testis_percent_thr * 100`% of cells):
+
+`r rownames(testis_sce)[!rownames(testis_sce) %in% kept_genes]`
+
+```{r}
+testis_sce <- testis_sce[kept_genes,]
+```
+
+
+```{r}
+FGC_sce <- CTdata::FGC_sce()
+FGC_sce <- FGC_sce[, FGC_sce$low_ncounts == "False"]
+FGC_sce <- FGC_sce[, FGC_sce$high_mito == "False"]
+# add missing CT genes (not in the downloaded dataset, as not detected (below detection) => were removed)
+# Add zero count values for these genes
+rowData(FGC_sce) <- NULL
+
+levels(FGC_sce$type) <- 
+    c("Primordial germ Cells (F)", "Fetal germ cells (F)", "Oogonia", "Oocytes",
+      "Primordial germ Cells (M)", "Fetal germ cells (M)", "Pre-spermatogonia")
+
+FGC_sce <- FGC_sce[rownames(testis_sce)[rownames(testis_sce) %in% rownames(FGC_sce)],]
+```
+
+Genes detected in adult testis scRNAseq but not in fetal gonads scRNAseq:
+
+```{r}
+missing_CT <- rownames(testis_sce)[!rownames(testis_sce) %in% rownames(FGC_sce)]
+missing_CT
+```
+
+
+
+```{r}
+if (length(missing_CT) > 0) {
+  print("added zero values to these genes in fetal scRNAseq")
+  print(missing_CT)
+  sce_missing_CT <- FGC_sce[1:length(missing_CT),]
+  rownames(sce_missing_CT) <- missing_CT
+  count_mat_missing_CT <- matrix(nrow = length(missing_CT), ncol = ncol(FGC_sce), data = 0)
+  rownames(count_mat_missing_CT) <- missing_CT
+  colnames(count_mat_missing_CT) <- colnames(FGC_sce)
+  assay(sce_missing_CT,1) <- count_mat_missing_CT
+  assay(sce_missing_CT,2) <- count_mat_missing_CT
+  FGC_sce <- rbind(FGC_sce, sce_missing_CT)
+}
+```
+
+- Genes not detected in adult oocytes dataset:
+
+```{r}
+oocytes_sce <- CTdata::oocytes_sce()
+
+# add missing CT genes (not in the downloaded dataset, as not detected (below detection) => were removed)
+# Add zero count values for these genes
+rowData(oocytes_sce) <- NULL
+oocytes_sce <- oocytes_sce[, oocytes_sce$type %in% c("Growing oocytes",  
+  "Fully grown oocytes",  
+  "Metaphase I", 
+  "Metaphase II")]
+oocytes_sce$type <- factor(oocytes_sce$type, levels = c("Growing oocytes",  
+                                                        "Fully grown oocytes",  
+                                                        "Metaphase I", 
+                                                        "Metaphase II"))
+
+oocytes_sce <- oocytes_sce[rownames(testis_sce)[
+  rownames(testis_sce) %in% rownames(oocytes_sce)], ]
+
+missing_CT <- rownames(testis_sce)[
+  !rownames(testis_sce) %in% rownames(oocytes_sce)]
+
+```
+
+`r missing_CT`
+
+```{r}
+if (length(missing_CT) > 0) {
+  print("added zero values to these genes in oocytes scRNAseq")
+  print(missing_CT)
+  sce_missing_CT <- oocytes_sce[1:length(missing_CT),]
+rownames(sce_missing_CT) <- missing_CT
+count_mat_missing_CT <- matrix(nrow = length(missing_CT), ncol = ncol(oocytes_sce), data = 0)
+rownames(count_mat_missing_CT) <- missing_CT
+colnames(count_mat_missing_CT) <- colnames(oocytes_sce)
+assay(sce_missing_CT,1) <- count_mat_missing_CT
+assay(sce_missing_CT,2) <- count_mat_missing_CT
+oocytes_sce <- rbind(oocytes_sce, sce_missing_CT)
+}
+```
+
+```{r }
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 5),
+  title_gp = gpar(col = "black", fontsize = 5),
+  simple_anno_size = unit(0.2,"cm"),
+  row_names_gp = gpar(fontsize = 1),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.01),
+  grid_width = unit(0.2, "cm"),
+  grid_height = unit(0.2, "cm"),
+  legend_height = unit(0.2, "cm"),
+  annotation_name_gp = gpar(fontsize = 0))
+
+```
+
+
+Kept `r nrow(testis_sce)` CT genes for the analysis.
+  
+
+```{r}
+#######################################################################
+# Function to downsample cell types
+#######################################################################
+sample_cells <- function(barcodes, nmax){
+  sample(barcodes, size = min(nmax, length(barcodes)), replace = FALSE)
+}
+```
+
+```{r}
+#######################################################################
+## Function to draw expression in FGC with specific annotations
+## and down-sampling the number of cells from each cell type
+#######################################################################
+draw_FGC_heatmap <- function(genes, 
+                             ncells_max = NULL,
+                             scale_lims = NULL,
+                             title_fs = 6,
+                             sex = c("F", "M"),
+                             clusterRow = FALSE, 
+                             font_size = 6,
+                             show_legend = TRUE,
+                             h_width = 5,
+                             h_height = 10,
+                             column_name_rot = 90){
+  
+  fetal_sce <- FGC_sce
+  fetal_sce$Stage <- "Fetal"
+  
+  # Set the colors used in the final heatmap based on all samples (F + M), 
+  # even when representing only F or M samples on the heatmap
+  # => same scale of colors
+  mat <-  as.matrix(assay(fetal_sce, "logcounts")[genes, ])
+  
+  if (is.null(scale_lims)) {
+    scale_lims <- c(0, quantile(rowMaxs(mat), 0.8))
+  }
+  
+  heatmap_colors <- colorRamp2(
+    seq(scale_lims[1], scale_lims[2], length = 11),                 
+    legend_colors)
+  
+  fetal_sce <- fetal_sce[, fetal_sce$sex %in% sex]
+  
+  df_col_FCS <- data.frame(development_stage = fetal_sce$development_stage,
+                           sex = fetal_sce$sex,
+                           stage = fetal_sce$stage,
+                           donor_id = fetal_sce$donor_id,
+                           fetal_cell_type = fetal_sce$cell_type,
+                           fetal_celltype = fetal_sce$celltype,
+                           type = fetal_sce$type,
+                           time = fetal_sce$PCW,
+                           Stage = fetal_sce$Stage)
+  
+  rownames(df_col_FCS) <- colnames(fetal_sce)
+  df_col_FCS$type <- factor(df_col_FCS$type)
+  if (all(sex == "M")) levels(df_col_FCS$type) <- c("PGC", "FGC", "Pre-\nSpg")
+  if (all(sex == "F")) levels(df_col_FCS$type) <- c("PGC", "FGC", "Oogonia", "Oocytes")
+  
+  #Randomly pick ncells_max cells of each cell type
+  if (!is.null(ncells_max)) {
+    set.seed(123)
+    selected_cells <- sample_cells(
+      rownames(df_col_FCS[df_col_FCS$type == levels(df_col_FCS$type)[1],]), 
+      ncells_max)
+    for (type in levels(df_col_FCS$type)[-1]){
+      tmp <- sample_cells(
+        rownames(df_col_FCS[df_col_FCS$type == type,]), ncells_max)
+      selected_cells <- c(selected_cells, tmp)
+    }
+    df_col_FCS <- df_col_FCS[selected_cells,]
+  }
+  
+  df_col_FCS <- df_col_FCS[order(df_col_FCS$time),]
+  df_col_FCS <- df_col_FCS[order(df_col_FCS$type),]
+
+  gene_type <- CT_genes_types %>% 
+    filter(gene %in% genes) 
+  
+
+  gene_type <- gene_type %>% arrange(met_3_groups)
+  rowSplit <- gene_type$met_3_groups
+
+   if (!clusterRow) {
+    gene_type$gene <- factor(gene_type$gene, levels = genes)
+    gene_type <- gene_type  %>%
+      arrange(gene)
+    gene_type$gene <- as.vector(gene_type$gene)
+    rowSplit <- gene_type$met_3_groups
+   }
+  
+  mat <- as.matrix(
+    assay(fetal_sce, "logcounts")[gene_type$gene, rownames(df_col_FCS)])
+  
+  title <- "Fetal germ cells"
+  if (all(sex == "F")) {
+    title <- "Female fetal germ cells"
+  }
+  if (all(sex == "M")) {
+    title <- "Male fetal germ cells"
+  }
+  
+  if (is.null(scale_lims)) {
+    scale_lims <- c(0, quantile(rowMaxs(mat), 0.8))
+  }
+  
+  heatmap_colors <- colorRamp2(
+    seq(scale_lims[1], scale_lims[2], length = 11),                 
+    legend_colors)
+  
+  ht_opt$TITLE_PADDING = unit(c(2.5, 5), "points")
+  
+  ht_FGCs <- Heatmap(mat,
+                     name = "Logcounts",
+                     left_annotation = rowAnnotation(
+                       met = anno_block(
+                         gp = gpar(fill = c("indianred2", "darksalmon", MethDep_colors[2]),
+                                   col = "black", lwd = 0.2),
+                         width = unit(c(0.5), "cm"),
+                         labels = c("X-linked\nMethDep", 
+                                    "Not X\nMethDep", 
+                                    "Non\nMethDep"), 
+                         labels_gp = gpar(col = "white", fontsize = 5))),
+                     #column_title = title,
+                     column_split = df_col_FCS$type,
+                     cluster_row_slices = FALSE,
+                     cluster_column_slices = FALSE,
+                     col = heatmap_colors,
+                     border = TRUE,
+                     border_gp = gpar(lwd = 0.2),
+                     row_gap = unit(c(2), "mm"),
+                     column_gap = unit(c(0.5), "mm"),
+                     show_column_dend = FALSE,
+                     show_row_dend = FALSE,
+                     row_names_gp = gpar(fontsize = font_size),
+                     row_names_side = "left",
+                     show_column_names = FALSE,
+                     cluster_rows = clusterRow,
+                     cluster_columns = FALSE,
+                     column_title_rot = column_name_rot,
+                     column_title_gp = gpar(fontsize = title_fs),
+                     show_row_names = TRUE,
+                     row_split = rowSplit,
+                     row_title_gp = gpar(fontsize = 4),
+                     row_title_rot = 90,
+                     gap = unit(0.01, "mm"),
+                     use_raster = TRUE,
+                     raster_device = "CairoPNG",
+                     width = unit(h_width, "cm"),
+                     height = unit(h_height, "cm"),
+                     raster_quality = 10,
+                     show_heatmap_legend = show_legend,
+                     heatmap_legend_param = legends_param)
+  
+  return(ht_FGCs)
+}
+
+```
+
+```{r}
+#######################################################################
+## Function to draw expression in adult testis cells with specific annotations
+## and downasampling the number of cells from each cell type
+#######################################################################
+draw_testis_heatmap <- function(genes, 
+                                gene_to_label = NULL,
+                                label_fonsize = 6,
+                                sex = c("F", "M"),
+                                ncells_max = NULL,
+                                font_size = 6,
+                                title_fs = 6,
+                                scale_lims = NULL,
+                                clusterRow = FALSE,
+                                show_legend = TRUE,
+                                h_width = 5,
+                                h_height = 10,
+                                clust_method = "ward.D"){
+  
+ # testis_adult_sce <- testis_sce[, testis_sce$stage != "somatic"]
+  testis_adult_sce <- testis_sce
+  testis_adult_sce$Stage <- "Adult"
+  testis_adult_sce$type <- factor(testis_adult_sce$type, levels = germcells)
+  
+  df_col_testis <- data.frame(type = testis_adult_sce$type,
+                              donor = testis_adult_sce$Donor,
+                              Stage = testis_adult_sce$Stage)
+  levels(df_col_testis$type) <- c("Spg\nstem", "Spg", "Spc\nearly", "Spc\nlate",
+                                  "Spd\nround", "Spd\nelong", "Sperm")
+  
+  df_col_testis$sex <- "M"
+  
+  rownames(df_col_testis) <- colnames(testis_adult_sce)
+  df_col_testis <- df_col_testis[order(df_col_testis$type),]
+  
+  #Randomly pick ncells_max cells of each cell type
+  if (!is.null(ncells_max)) {
+    set.seed(123)
+    selected_cells <- sample_cells(
+      rownames(df_col_testis[df_col_testis$type == 
+                               levels(df_col_testis$type)[1],]), ncells_max)
+    for (type in levels(df_col_testis$type)[-1]){
+      tmp <- sample_cells(
+        rownames(df_col_testis[df_col_testis$type == type,]), ncells_max)
+      selected_cells <- c(selected_cells, tmp)
+    }
+    df_col_testis <- df_col_testis[selected_cells,]
+  }
+  
+  gene_type <- CT_genes_types %>% 
+    filter(gene %in% genes) 
+  
+  gene_type <- gene_type %>% arrange(met_3_groups)
+  rowSplit <- gene_type$met_3_groups
+  
+  if (!clusterRow) {
+    gene_type$gene <- factor(gene_type$gene, levels = genes)
+    gene_type <- gene_type  %>%
+      arrange(gene)
+    gene_type$gene <- as.vector(gene_type$gene)
+    rowSplit <- gene_type$met_3_groups
+  }
+  
+    mat <-  as.matrix(
+    assay(testis_adult_sce, "logcounts")[gene_type$gene, rownames(df_col_testis)])
+  
+  if (is.null(scale_lims)) {
+    scale_lims <- c(0, quantile(rowMaxs(mat), 0.8))
+  }
+  
+  heatmap_colors <- colorRamp2(
+    seq(scale_lims[1], scale_lims[2], length = 11),                 
+    legend_colors)
+  
+   rAnnot <- NULL
+  
+  ha <- NULL
+  if (!is.null(gene_to_label)){
+    ind_to_label <- which(rownames(mat) %in% gene_to_label)
+    ha <- rowAnnotation(foo = anno_mark(at = ind_to_label, 
+                                        labels = rownames(mat[ind_to_label,]),
+                                        labels_gp = gpar(fontsize = label_fonsize)))
+  }
+  
+  ht_opt$TITLE_PADDING = unit(c(2.5, 5), "points")
+  ht_testis <- Heatmap(mat,
+                       name = "logcounts",
+                       column_split = df_col_testis$type,
+                       column_title_rot = 90,
+                       column_title_gp = gpar(fontsize = title_fs),
+                       row_title = NULL,
+                       col = heatmap_colors,
+                       border = TRUE,
+                       border_gp = gpar(lwd = 0.2),
+                       row_gap = unit(c(2), "mm"),
+                       column_gap = unit(c(0.5), "mm"),
+                       show_column_dend = FALSE,
+                       show_row_dend = FALSE,
+                       row_names_gp = gpar(fontsize = font_size),
+                       row_names_side = "right",
+                       cluster_rows = clusterRow,
+                       clustering_method_rows = clust_method,
+                       row_dend_reorder = TRUE,
+                       cluster_columns = FALSE,
+                       show_column_names = FALSE,
+                       show_row_names = FALSE,
+                       row_split = rowSplit,
+                       cluster_row_slices = FALSE,
+                       cluster_column_slices = FALSE,
+                       right_annotation = ha,
+                       row_title_gp = gpar(fontsize = 8),
+                       gap = unit(0.01, "mm"),
+                       use_raster = TRUE,
+                       raster_device = "CairoPNG",
+                       raster_quality = 10,
+                       width = unit(h_width, "cm"),
+                       height = unit(h_height, "cm"),
+                       show_heatmap_legend =  show_legend,
+                       heatmap_legend_param = legends_param)
+  
+  return(ht_testis)
+}
+```
+
+```{r}
+#######################################################################
+## Function to draw expression in adult oocytes cells with specific annotations
+## and downasampling the number of cells from each cell type
+#######################################################################
+draw_oocytes_heatmap <- function(genes, 
+                                 gene_to_label = NULL,
+                                 ncells_max = NULL,
+                                 font_size = 6,
+                                 label_fonsize = 6, 
+                                 scale_lims = NULL,
+                                 clusterRow = TRUE,
+                                 show_legend = TRUE,
+                                 title_fs = 6,
+                                 h_width = 5,
+                                 h_height = 10,
+                                 column_name_rot = 90,
+                                clust_method = "ward.D",
+                                show_right_annot = TRUE,
+                                show_top_annot = TRUE,
+                                top_annot = "Stage"){
+  
+  adult_oocytes_sce <- oocytes_sce[, oocytes_sce$type %in% c("Growing oocytes", 
+                                                             # "Fully grown oocytes",  
+                                                             # "Metaphase I", 
+                                                             "Metaphase II")]
+  
+  adult_oocytes_sce$Stage <- "Adult"
+  levels(adult_oocytes_sce$type) <- c("Growing\noocyte", 
+                                      "Fully grown\noocyte",  
+                                      "MI\noocyte", 
+                                      "MII\noocyte")
+  
+  df_col_oocytes <- data.frame(type = adult_oocytes_sce$type,
+                               sex = adult_oocytes_sce$sex,
+                               stage = adult_oocytes_sce$stage,
+                               Stage = adult_oocytes_sce$Stage)
+  
+  rownames(df_col_oocytes) <- colnames(adult_oocytes_sce)
+  df_col_oocytes <- df_col_oocytes[order(df_col_oocytes$type),]
+  
+   
+  
+  #Randomly pick ncells_max cells of each cell type
+  if (!is.null(ncells_max)) {
+    set.seed(123)
+    selected_cells <- sample_cells(
+      rownames(df_col_oocytes[df_col_oocytes$type == 
+                                levels(df_col_oocytes$type)[1],]), ncells_max)
+    for (type in levels(df_col_oocytes$type)[-1]){
+      tmp <- sample_cells(
+        rownames(df_col_oocytes[df_col_oocytes$type == type,]), ncells_max)
+      selected_cells <- c(selected_cells, tmp)
+    }
+    df_col_oocytes <- df_col_oocytes[selected_cells,]
+  }
+  
+  gene_type <- CT_genes_types %>% 
+    filter(gene %in% genes) 
+  
+  gene_type <- gene_type %>% arrange(met_3_groups)
+  rowSplit <- gene_type$met_3_groups
+
+  if (!clusterRow) {
+    gene_type$gene <- factor(gene_type$gene, levels = genes)
+    gene_type <- gene_type  %>%
+      arrange(gene)
+    gene_type$gene <- as.vector(gene_type$gene)
+    rowSplit <- gene_type$met_3_groups
+  }
+  
+  mat <-  as.matrix(
+    assay(adult_oocytes_sce, "logcounts")[gene_type$gene, rownames(df_col_oocytes)])
+  
+  if (is.null(scale_lims)) {
+    scale_lims <- c(0, quantile(rowMaxs(mat), 0.8))
+  }
+  
+  heatmap_colors <- colorRamp2(
+    seq(scale_lims[1], scale_lims[2], length = 11),                 
+    legend_colors)
+
+  
+  ha <- NULL
+  if (!is.null(gene_to_label)){
+    ind_to_label <- which(rownames(mat) %in% gene_to_label)
+    ha <- rowAnnotation(foo = anno_mark(at = ind_to_label, 
+                                        labels = rownames(mat[ind_to_label,]),
+                                        labels_gp = gpar(fontsize = label_fonsize)))
+  }
+  
+  ht_oocytes <- Heatmap(mat,
+                        name = "logcounts",
+                        column_split = df_col_oocytes$type,
+                        column_title_rot =  column_name_rot,
+                        column_title_gp = gpar(fontsize = title_fs),
+                        col = heatmap_colors,
+                        border = TRUE,
+                        border_gp = gpar(lwd = 0.2),
+                        row_gap = unit(c(2), "mm"),
+                        column_gap = unit(c(0.5), "mm"),
+                        show_column_dend = FALSE,
+                        show_row_dend = FALSE,
+                        row_names_gp = gpar(fontsize = font_size),
+                        row_names_side = "left",
+                        cluster_rows = clusterRow,
+                        clustering_method_rows = clust_method,
+                        row_dend_reorder = TRUE,
+                        cluster_columns = FALSE,
+                        show_column_names = FALSE,
+                        show_row_names = TRUE,
+                        row_split = rowSplit,
+                        cluster_row_slices = FALSE,
+                        cluster_column_slices = FALSE,
+                        right_annotation = ha,
+                        row_title_gp = gpar(fontsize = 0),
+                        gap = unit(0.01, "mm"),
+                        use_raster = TRUE,
+                        raster_device = "CairoPNG",
+                        raster_quality = 10,
+                        width = unit(h_width, "cm"),
+                        height = unit(h_height, "cm"),
+                        show_heatmap_legend = show_legend,
+                        heatmap_legend_param = legends_param)
+  
+  return(ht_oocytes)
+}
+```
+
+
+```{r}
+# Manual adjustements
+
+X_met_order <- c(
+  "SPANXB1", "SPANXD", "SPANXC", "DDX53", "TGIF2LX", "CXorf51B",
+  "VCX3B", "VCX", "VCX3A", "VCX2", "FMR1NB",  "PAGE1",
+  "PAGE2", "PAGE5", "MAGEA4",  "MAGEC2", "GAGE2A",
+  "MAGEB2", "GAGE1", "CTAG2", "PASD1", "MAGEA3", "MAGEA6", "CT45A10",
+  "CT55", "MAGEA1", "SSX1", "MAGEA10", "MAGEA11", "MAGEA9B", "MAGEB6",
+  "MAGEC1", "MAGEA12", "MAGEB1", "MAGEB16",  "FTHL17",
+  "MAGEA8", "TEX13C", "GAGE13", "GAGE12E", "XAGE5", "SAGE1", 
+  "CT45A1", "SSX5", "SSX2B", "SSX2", "XAGE1A", "XAGE1B", "DCAF8L2")
+
+not_X_met_order <- c(
+  "FLJ36000", "SUN3", "LINC02475", "TUBA3C", "DSCR8", "BRDT", "COX7B2", "RBM46", 
+  "DCAF4L2", "CTCFL", "RNF17", "POTEC", "NLRP4","RFPL4B","LINC00470", 
+  "TMEM132D-AS1", "PRDM9", "LINC01413", "DPPA2", "TRIML2", "LINC01518", 
+  "LINC00200", "POTEF")
+
+not_met_order <- c( 
+  "LINC01193", "CSTL1", "GARIN2", "WDR64","CBY2", "FAM217A", "CDRT15", "C1orf94",
+  "LINC01249", "RAD21L1", "CHCT1", "SYCP1","LINC01206","LIN28A","MEIOB", "MAJIN", 
+  "PRDM7","DMRT1", "ESX1", "TSPY2", "LINC01511", "ZNF729", "TSPY3", "LINC01098")
+
+my_genes <- c(X_met_order, not_X_met_order, not_met_order)
+
+```
+
+
+## Fig 6A: Male germcells expression (fetal + adult)
+
+```{r}
+fs <- 0
+ncells <- 50
+set.seed(123)
+scale_limits <- c(0, 5)
+label_fs <- 6
+
+ht_testis <- draw_testis_heatmap(my_genes, 
+                                 gene_to_label = c("SPANXB1", "VCX3B", "MAGEC2", 
+                                                   "CTAG2", "MAGEA3", "SSX1", 
+                                                   "DSCR8", "CTCFL", "DPPA2", 
+                                                   "CBY2", "SYCP1", "DMRT1"),
+                                 ncells_max = ncells,
+                                 font_size = fs,
+                                 scale_lims = scale_limits, 
+                                 title_fs = 6,
+                                 h_width = 5,
+                                 h_height = 6,
+                                 clusterRow  = FALSE,
+                                 show_legend = TRUE,
+                                 label_fonsize = label_fs, 
+                                 clust_method = "centroid")
+
+
+male_FGC_ht <- draw_FGC_heatmap(my_genes, 
+                                ncells_max = ncells,
+                                sex = c("M"),
+                                clusterRow = FALSE, 
+                                h_width = 2,
+                                h_height = 6,
+                                font_size = fs,
+                                title_fs = 6,
+                                scale_lims = scale_limits, 
+                                show_legend = FALSE)
+
+
+
+ht_list <- male_FGC_ht + ht_testis
+
+draw(ht_list, main_heatmap = "logcounts",
+     merge_legend = TRUE)
+
+pdf(file = paste0("../figs/Fig6A_Expression_in_MALE_FGC_and_adult_testis.pdf"))
+draw(ht_list, main_heatmap = "logcounts",
+     merge_legend = TRUE, ht_gap = unit(0.1, "mm"))
+dev.off()
+```
+
+## Fig 7A: Female germcells Expression (fetal + adult)
+
+```{r}
+fs <- 0
+ncells <- 50
+set.seed(123)
+
+to_label <- c("DDX53", "TGIF2LX", #"VCX", 
+              "PAGE2", "PAGE5", 
+              "MAGEB2", "MAGEB1", "MAGEC1", "FTHL17", #"SAGE1",
+              "DSCR8", "BRDT", "RBM46", "DCAF4L2", "CTCFL", "RNF17", 
+              "NLRP4", "LINC01413", "FAM217A", "LIN28A", "MEIOB", "MAJIN", "LINC01511")
+to_label[!to_label%in% CT_genes$external_gene_name]
+ht_oocytes <- draw_oocytes_heatmap(my_genes, 
+                                   gene_to_label = to_label,
+                                   label_fonsize = label_fs, 
+                                 ncells_max = ncells,
+                                 font_size = fs,
+                                 scale_lims = scale_limits, 
+                                 title_fs = 6,
+                                 h_width = 2,
+                                 h_height = 6,
+                                 column_name_rot = 0,
+                                 clusterRow  = FALSE,
+                                 show_legend = TRUE,
+                                 clust_method = "centroid",
+                                 show_right_annot = FALSE,
+                                 show_top_annot = FALSE,
+                                 top_annot = "Stage")
+
+
+female_FGC_ht <- draw_FGC_heatmap(my_genes, 
+                                ncells_max = ncells,
+                                sex = c("F"),
+                                clusterRow = FALSE, 
+                                h_width = 4,
+                                h_height = 6,
+                                column_name_rot = 0,
+                                font_size = fs,
+                                title_fs = 6,
+                                scale_lims = scale_limits, 
+                                show_legend = FALSE)
+
+
+ht_list <- female_FGC_ht + ht_oocytes
+
+draw(ht_list, main_heatmap = "logcounts",
+    merge_legend = TRUE)
+
+pdf(file = paste0("../figs/Fig7A_Expression_in_FEMALE_germcells.pdf"))
+#, width = 6, height = 4)
+draw(ht_list, main_heatmap = "logcounts",
+    merge_legend = TRUE, ht_gap = unit(0.1, "mm"))
+dev.off()
+```
+
+
+
+# Fig 6B: Repression of X-linked CG genes coincides with MSCI
+
+
+- Calculated mean expression in each cell type
+
+- Removed genes never expressed in pre-meiotic germ cells
+
+- Calculated mean expression by chr 
+
+    - for Autosomial genes (not CG genes), 
+    - X-linked (not CG genes), 
+    - X-linked CG genes
+
+```{r}
+testis_sce <- CTdata::testis_sce()
+
+levels(testis_sce$type)[c(7,8)] <- "Sperm"
+levels(testis_sce$type) <- c("Spermatogonial\nstem cells", "Spermatogonia",
+                             "Early\nspermatocytes", "Late\nspermatocytes",
+                             "Round\nspermatids", "Elongated\nspermatids",
+                             "Sperm", "Macrophage", "Endothelial", "Myoid",
+                             "Sertoli", "Leydig" )
+somatic <- c("Macrophage", "Endothelial", "Myoid", "Sertoli", "Leydig")
+testis_sce <- testis_sce[, !testis_sce$type %in% somatic]
+testis_sce$type <- droplevels(testis_sce$type)
+
+# Mean expression level per gene and per cell type
+mean_gene_counts_by_type <- as_tibble(assay(testis_sce, "logcounts"), 
+                                      rownames = "gene") %>% 
+  pivot_longer(names_to = "cell", values_to = "count", -gene) %>% 
+  left_join(as_tibble(colData(testis_sce), rownames = "cell") %>% 
+              dplyr::select(cell, type)) %>% 
+  group_by(gene, type) %>% 
+  summarise(mean_count = mean(count)) %>% 
+  left_join(all_genes %>% 
+              dplyr::select(external_gene_name, chr) %>% 
+              dplyr::rename(gene = external_gene_name)) 
+
+pre_meiotic <- c("Spermatogonial\nstem cells", "Spermatogonia", 
+                 "Early\nspermatocytes")
+
+# To remove later on genes never detected in premeiotic cells
+genes_never_expressed_in_premeiotic <- mean_gene_counts_by_type %>% 
+  filter(type %in% pre_meiotic) %>% 
+  group_by(gene) %>% 
+  mutate(mean_count_in_premeiotic = mean(mean_count)) %>% 
+  filter(mean_count_in_premeiotic == 0) %>% 
+  pull(gene)
+
+Xmet <- CT_genes %>% 
+  filter(regulated_by_methylation) %>% 
+  filter(X_linked) %>% 
+  pull(external_gene_name)
+
+# Mean expression level per chromosome and per cell type
+# Removed CT genes MethDep from the genes
+# Removed genes never_expressed_in_premeiotic_cells
+mean_gene_counts_by_chromosome_and_by_type <- mean_gene_counts_by_type %>% 
+  filter(!gene %in% Xmet) %>% 
+  filter(!gene %in% genes_never_expressed_in_premeiotic) %>% 
+  filter(chr %in% c(1:22, "X")) %>% 
+  mutate(group = case_when(chr %in% 1:22 ~ "Autosomal genes",
+                           chr == "X" ~ "X-linked genes")) %>% 
+  group_by(group, type) %>% 
+  summarize(gene_expression_mean = mean(mean_count)) %>% 
+  mutate(type = factor(type, levels = levels(mean_gene_counts_by_type$type))) 
+
+# Mean expression level of CTgenes MethDep per cell type
+# Removed genes never_expressed_in_premeiotic_cells
+mean_CT_counts_by_chromosome_and_by_type <- mean_gene_counts_by_type %>% 
+  filter(gene %in% Xmet) %>% 
+  filter(!gene %in% genes_never_expressed_in_premeiotic) %>% 
+  mutate(group = 'X-linked CG MethDep') %>% 
+  group_by(group, type) %>% 
+  summarize(gene_expression_mean = mean(mean_count)) %>% 
+  mutate(type = factor(type, levels = levels(mean_gene_counts_by_type$type))) 
+
+levels(mean_gene_counts_by_chromosome_and_by_type$type) <- 
+  c("Spg stem", "Spg", "Spc early", "Spc late", "Spd round", "Spd elong", "Sperm")
+levels(mean_CT_counts_by_chromosome_and_by_type$type) <- 
+  c("Spg stem", "Spg", "Spc early", "Spc late", "Spd round", "Spd elong", "Sperm")
+
+
+fig <- rbind(mean_gene_counts_by_chromosome_and_by_type, 
+             mean_CT_counts_by_chromosome_and_by_type) %>% 
+  ggplot(aes(x = type, y = gene_expression_mean, group = group)) + #, color = group)) +
+  geom_vline(xintercept = 3, color = "red", linetype = "dashed")+
+  geom_point() + geom_line() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        axis.title.x = element_text(size = 0),
+        legend.position = "none", 
+        panel.grid = element_blank(),
+        aspect.ratio = 0.8,
+        strip.text.x = element_text(size = 7)) +
+  xlab("Spermatogenesis stage") +
+  ylab("Gene mean expression") +
+  facet_wrap(~ group, scales = "free_y", ncol = 1)
+
+fig
+
+pdf(file = paste0("../figs/Fig6B_Repression_of_MethDep_and_MSCI.pdf"), width = 2.5, height = 4)
+fig
+dev.off()
+```
+
+
+```{r}
+# Number of genes in each group:
+x <- mean_gene_counts_by_type %>% 
+  filter(!gene %in% Xmet) %>% 
+  filter(!gene %in% genes_never_expressed_in_premeiotic) %>% 
+  filter(chr %in% c(1:22, "X")) %>% 
+  mutate(group = case_when(chr %in% 1:22 ~ "Autosomal genes",
+                                chr == "X" ~ "X-linked genes")) %>% 
+  dplyr::select(gene, group) %>% unique()
+
+y <- mean_gene_counts_by_type %>% 
+  filter(gene %in% Xmet) %>% 
+  mutate(group = 'X-linked CG MethDep') %>% 
+  dplyr::select(gene, group) %>% unique()
+
+n_gene_per_group <- rbind(x, y) 
+
+flextable(enframe(table(n_gene_per_group$group), 
+                  name = "Group", value = "number of gene"), 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(as_paragraph(
+    as_chunk("Number of analysed genes", 
+             props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))), 
+    word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+```
+
+
+
+# Fig 6D: CG expression and methylation in Male FGC
+
+## Expression
+
+Proportions of positive cells
+
+=> proportion of count values in each group that are non-zero
+
+
+```{r}
+my_genes <- CT_genes$external_gene_name[CT_genes$external_gene_name %in% rownames(FGC_sce)]
+
+dds <- scuttle::summarizeAssayByGroup(FGC_sce, 
+                                      assay.type = "logcounts",
+                            ids = FGC_sce$type,
+                            statistics = "prop.detected")
+
+dds$type <- dds$ids
+rownames(colData(dds)) <- dds$ids
+colnames(dds) <- dds$ids
+dds$sex <- c(rep("F", 4), rep("M", 3))
+
+bilan_exp <- as_tibble(assay(dds[my_genes, ]), rownames = "gene") %>% 
+  pivot_longer(names_to = "type_sex", values_to = "proportion_of_pos", -gene) %>% 
+  left_join(CT_genes %>% 
+              dplyr::select(external_gene_name, regulated_by_methylation, X_linked) %>% 
+              dplyr::rename(gene = external_gene_name)) %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  mutate(CT_group = case_when(regulated_by_methylation & X_linked ~ "X-linked MethDep",
+                              regulated_by_methylation & !X_linked ~ "Not X MethDep",
+                              !regulated_by_methylation ~ "Non-MethDep")) %>% 
+   mutate(CT_group = factor(CT_group, 
+                            levels = c("X-linked MethDep", 
+                                       "Not X MethDep",
+                                       "Non-MethDep"))) %>% 
+  mutate(type_sex = factor(type_sex, levels = levels(FGC_sce$type) )) %>% 
+  left_join(as_tibble(colData(dds)) %>% dplyr::rename(type_sex = type))
+
+levels(bilan_exp$type_sex) <- c("PGC", "FGC", "Oogonia", "Oocyte", "PGC", "FGC", "Pre-SpG")
+bilan_exp$sex <- factor(bilan_exp$sex)
+levels(bilan_exp$sex) <- c("Female FGCs", "Male FGCs" )
+
+library(ggh4x)
+strip <- strip_themed(background_y = elem_list_rect(fill = CT_group_colors))
+
+my_colors <- CT_group_colors
+names(my_colors) <- c("X-linked\nMethDep", "Not X\nMethDep","Non-MethDep")
+
+fig_expression_in_Male_FGC <- bilan_exp %>% 
+  filter(sex == "Male FGCs") %>% 
+  mutate(sex = "scRNAseq\nMale gonad") %>% 
+  filter(CT_group != "Non-MethDep") %>% 
+  mutate(CT_group = case_when(CT_group == "X-linked MethDep" ~ "X-linked\nMethDep",
+                              CT_group == "Not X MethDep" ~ "Not X\nMethDep")) %>%
+  mutate(CT_group = factor(CT_group, levels =  c("X-linked\nMethDep", "Not X\nMethDep"))) %>%
+  ggplot(aes(x = type_sex, y = proportion_of_pos)) +
+  scale_color_manual(values = CT_group_colors) +
+  geom_boxplot(data = bilan_exp %>% 
+                 filter(sex == "Male FGCs") %>% 
+                 mutate(sex = "scRNAseq\nMale gonad") %>% 
+                 filter(CT_group != "Non-MethDep") %>% 
+                 mutate(CT_group = case_when(CT_group == "X-linked MethDep" ~ "X-linked\nMethDep",
+                                             CT_group == "Not X MethDep" ~ "Not X\nMethDep")) %>%
+                 mutate(CT_group = factor(CT_group, levels =  c("X-linked\nMethDep", "Not X\nMethDep"))) ,
+               aes(x = type_sex, y = proportion_of_pos, fill = CT_group), 
+               alpha = 0.5,
+               outliers = F, 
+               varwidth = TRUE,
+               linewidth = 0.3) +
+  scale_fill_manual(values = my_colors) +
+  facet_grid2(CT_group ~ sex, drop = T, 
+              switch = "y", 
+              scales = "free_x", 
+              strip = strip) +#, space = "free") +#, switch = "y") +
+  theme_bw() +
+  theme(aspect.ratio = 1.5,
+        axis.text.x = element_text(angle = 0, 
+                                   size = 8,
+                                   vjust = 0.5,  
+                                   hjust = 0.5,
+                                   face = "bold"),
+        axis.title.y = element_text(size = 12),
+        axis.title.x = element_text(size = 0),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        legend.position = "none",
+        strip.text.x = element_text(size = 10),
+        strip.text.y = element_text(size = 10, color = "white", face = "bold"),
+        strip.placement.y = "inside",
+        strip.background.y = element_rect(fill=CT_group_colors[2]),
+        strip.background.x = element_blank() ) +
+  ylab("Proportions of positive cells") +
+  xlab("Fetal cell stages")
+
+bilan_exp %>% 
+  filter(sex == "Male FGCs") %>% 
+  mutate(sex = "scRNAseq\nMale gonad") %>% 
+  filter(CT_group != "Non-MethDep") %>% 
+  mutate(CT_group = case_when(CT_group == "X-linked MethDep" ~ "X-linked\nMethDep",
+                              CT_group == "Not X MethDep" ~ "Not X\nMethDep")) %>%
+  mutate(CT_group = factor(CT_group, levels =  c("X-linked\nMethDep", "Not X\nMethDep"))) %>% 
+  dplyr::select(gene, CT_group) %>% 
+  unique() %>% 
+  pull(CT_group) %>% 
+  table()
+```
+
+
+
+
+
+## Methylation 
+
+```{r}
+mean_methylation_in_FGC <- CTdata::mean_methylation_in_FGC()
+
+bilan <- as_tibble(assay(mean_methylation_in_FGC), rownames = "gene") %>% 
+  filter(gene %in% CT_genes$external_gene_name) %>% 
+  pivot_longer(names_to = "sample", values_to = "met", -gene) %>% 
+  left_join(CT_genes %>% 
+              dplyr::select(external_gene_name, regulated_by_methylation, X_linked) %>% 
+              dplyr::rename(gene = external_gene_name)) %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  mutate(CT_group = case_when(regulated_by_methylation & X_linked ~ "X-linked MethDep",
+                              regulated_by_methylation & !X_linked ~ "Not X MethDep",
+                              !regulated_by_methylation ~ "Non-MethDep")) %>% 
+  mutate(CT_group = factor(CT_group, 
+                           levels = c("X-linked MethDep", 
+                                      "Not X MethDep", 
+                                      "Non-MethDep"))) %>% 
+  left_join(as_tibble(colData(mean_methylation_in_FGC)) %>% 
+              dplyr::select(sample, group, type, time_week, sex, sex_time, sex_type, type) %>% 
+              dplyr::rename(FGC_group = group)) %>% 
+  #filter(gene == "DCAF8L2") %>% 
+  group_by(CT_group, gene, type, time_week, sex) %>%
+  summarise(mean_met = mean(met, na.rm = TRUE),
+            met_sd = sd(met, na.rm = TRUE),
+            median_met = median(met, na.rm = TRUE)) %>%
+  mutate(type_sex = case_when(type == "FGC" & sex == "F" ~ "Female FGC",
+                              type == "FGC" & sex == "M" ~ "Male FGC",
+                              type == "Soma"& sex == "F" ~ "Somatic cells",
+                              type == "Soma"& sex == "M" ~ "Somatic cells")) %>% 
+  mutate(sex = case_when(sex == "F" ~ "Female",
+                         sex == "M" ~ "Male")) %>% 
+  mutate(Group = paste0(CT_group, type)) %>% 
+  mutate(Group = factor(Group, levels = c("X-linked MethDepFGC",
+                                          "X-linked MethDepSoma",
+                                          "Not X MethDepFGC",
+                                          "Not X MethDepSoma", 
+                                          "Non-MethDepFGC", 
+                                          "Non-MethDepSoma"))) %>%
+  mutate(Type = case_when(type == "Soma" ~ "Somatic cells",
+                          type == "FGC" ~ "FGC")) 
+
+library(ggh4x)
+strip <- strip_themed(background_y = elem_list_rect(fill = CT_group_colors))
+
+fig_met_in_Male_FGC <- bilan %>% 
+  filter(sex == "Male") %>%  
+  mutate(type_sex = case_when(type_sex == "Male FGC" ~"scBSseq\nMale gonad",
+                              type_sex == "Somatic cells" ~"Soma")) %>% 
+  filter(CT_group != "Non-MethDep") %>% 
+  mutate(CT_group = case_when(CT_group == "X-linked MethDep" ~ "X-linked\nMethDep",
+                           CT_group == "Not X MethDep" ~ "Not X\nMethDep")) %>%
+  mutate(CT_group = factor(CT_group, levels =  c("X-linked\nMethDep", "Not X\nMethDep"))) %>%
+  mutate(time_week = factor(time_week, 
+                            levels = c("6", "7", "8", "9", "10", "17", "21", "24"))) %>% 
+  ggplot(aes(x = time_week, y = mean_met, color = CT_group, group = time_week)) +
+  #geom_jitter(size = .2, alpha = 1) + 
+  geom_boxplot(data = bilan %>% 
+  filter(sex == "Male") %>%  
+  mutate(type_sex = case_when(type_sex == "Male FGC" ~"scBSseq\nMale gonad",
+                              type_sex == "Somatic cells" ~"Soma")) %>% 
+  filter(CT_group != "Non-MethDep") %>% 
+  mutate(CT_group = case_when(CT_group == "X-linked MethDep" ~ "X-linked\nMethDep",
+                           CT_group == "Not X MethDep" ~ "Not X\nMethDep")) %>%
+  mutate(CT_group = factor(CT_group, levels =  c("X-linked\nMethDep", "Not X\nMethDep"))) %>%
+  mutate(time_week = factor(time_week, 
+                            levels = c("6", "7", "8", "9", "10", "17", "21", "24"))),
+  aes(x = time_week, y = mean_met, color = CT_group, group = time_week, fill = CT_group),
+               linewidth = 0.3,
+               alpha = 0.5, color = "black",
+               outliers = F) +
+  scale_color_manual(values = CT_group_colors) +
+  scale_fill_manual(values = my_colors) +
+  facet_grid2(CT_group ~ type_sex,  
+              scales = "free_x", 
+              space = "free",
+             drop = TRUE, 
+             #strip = strip,
+             switch = "y"
+             ) +
+  theme_bw() +
+  theme(#aspect.ratio = 2,
+        axis.text.x = element_text(angle = 0, 
+                                   size = 8,
+                                   vjust = 0.5,  
+                                   hjust = 0.5,
+                                   face = "bold"),
+        axis.title.y = element_text(size = 12),
+        axis.title.x = element_text(size = 0),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        legend.position = "none",
+        strip.placement.y = "right",
+        strip.text.x = element_text(size = 10),
+        strip.text.y = element_text(size = 10, color = "white", face = "bold"),
+        strip.background = element_blank(),
+        strip.x = element_blank()) +
+  scale_y_continuous(position = "right")+
+  #scale_y_log10() +
+    ylab("Promoter mean methylation") +
+  xlab("Time (week)")
+fig_met_in_Male_FGC
+```
+
+```{r}
+bilan %>% 
+  filter(CT_group == "X-linked MethDep", sex == "Male", type == "FGC") %>% 
+  mutate(timepoints = case_when(time_week <= 7 ~ "6-7W",
+                                time_week >= 17 ~ ">17W")) %>% 
+  ungroup() %>% 
+  group_by(timepoints) %>% 
+  dplyr::summarise("methylation (mean)" = mean(mean_met, na.rm = TRUE),
+                   "methylation (median)" = median(mean_met, na.rm = TRUE)) %>% 
+  DT::datatable()
+
+```
+
+
+## Fig 6D: Exp + Meth
+
+```{r}
+gridExtra::grid.arrange(fig_expression_in_Male_FGC, fig_met_in_Male_FGC, ncol = 2)
+
+pdf(file = "../figs/Fig6D_Expression_and_Met_in_Male_FGC.pdf", width = 5, height = 3)
+gridExtra::grid.arrange(fig_expression_in_Male_FGC, fig_met_in_Male_FGC, ncol = 2)
+dev.off()
+```
+
+
+
+
+# Fig 6F: expression and methylation in Male FGC: Selected examples 
+
+## Initial gene selection
+
+
+```{r}
+X_MethDep_genes <- c("SSX1", "VCX", "PAGE2", "MAGEC2", "MAGEB16")
+notX_MethDep_genes <- c("RNF17", "CTCFL")
+#not_MethDep_genes <- c("DMRT1", "SYCP1")
+selected_genes <- c(X_MethDep_genes, notX_MethDep_genes)
+
+strip <- strip_themed(background_y = elem_list_rect(fill = c(rep("indianred2", 5), rep(CT_group_colors[2], 2))))
+
+bilan_exp_selected <-bilan_exp %>% 
+  filter(sex == "Male FGCs") %>% 
+  filter(gene %in% selected_genes) %>%
+  mutate(gene = factor(gene, levels = selected_genes)) %>% 
+  left_join(CT_genes %>% 
+              dplyr::select(external_gene_name, regulated_by_methylation, X_linked) %>% 
+              dplyr::rename(gene = external_gene_name)) %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  mutate(CT_group = case_when(regulated_by_methylation & X_linked ~ "X-linked MethDep",
+                              regulated_by_methylation & !X_linked ~ "Not X MethDep",
+                              !regulated_by_methylation ~ "Non-MethDep"))
+bilan_exp_selected$gene <- factor(bilan_exp_selected$gene, levels = selected_genes)
+
+fig_exp <- bilan_exp_selected %>% 
+    ggplot(aes(x = type_sex, y = proportion_of_pos, group = gene , color = CT_group)) +
+    geom_point()+
+    geom_line() +
+  scale_color_manual(values = CT_group_colors)+
+  facet_grid2( gene ~ ., strip = strip, switch = "y") +
+  theme_bw() +
+  theme(aspect.ratio = .5,
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8, face = "bold"),
+        axis.title.y = element_text(size = 12),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        strip.text.y = element_text(size = 7, face = "bold"),
+        strip.placement = "outside") +
+  ylab("Proportion of positive cells")
+
+
+
+bilan_met_selected <- bilan %>% 
+  ungroup() %>% 
+  filter(gene %in% selected_genes) %>%
+  filter(type_sex == "Male FGC") %>% 
+  mutate(time_week = factor(time_week)) 
+
+bilan_met_selected$gene <- factor(bilan_met_selected$gene, levels = selected_genes)
+
+fig_met <- bilan_met_selected %>% 
+  ggplot(aes(x = time_week, y = mean_met, group = gene, color = CT_group)) +
+  geom_point()+
+    geom_line() +
+  #facet_grid2( gene ~ ., strip = strip) +
+  facet_grid( gene ~ .) +
+  scale_color_manual(values = CT_group_colors)+
+  theme_bw() +
+  theme(aspect.ratio = .4,
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8, face = "bold"),
+        axis.title.y = element_text(size = 12),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        strip.text.y = element_text(size = 0, face = "bold"),
+        strip.background = element_blank()) +
+  ylab("Promoter mean methylation")
+```
+
+Expression
+
+```{r}
+fig_exp
+```
+
+Methylation
+
+```{r}
+fig_met
+```
+
+```{r}
+#gridExtra::grid.arrange(fig_exp, fig_met, ncol = 3)
+
+pdf(file = "../figs/Fig6F_Examples.pdf")#, width = 3, height = 5)
+gridExtra::grid.arrange(fig_exp, fig_met, ncol = 2)
+dev.off()
+```
+
+
+
+
+
+# Fig 7D: Methylation  in Female FGC
+
+
+
+```{r}
+met_thr <- 75
+
+Genes_methylated_in_soma <- as_tibble(assay(mean_methylation_in_FGC), rownames = "gene") %>% 
+  pivot_longer(names_to = "sample", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_methylation_in_FGC)) %>% 
+              dplyr::select(sample, group, type, time_week, sex, sex_time, sex_type, type) %>% 
+              dplyr::rename(FGC_group = group)) %>%
+  filter(type == "Soma") %>% 
+  mutate(sex = case_when(sex == "F" ~ "Female",
+                         sex == "M" ~ "Male")) %>% 
+  group_by(gene, type, time_week, sex) %>%
+  summarise(mean_met = mean(met, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  dplyr::select(gene, sex, mean_met) %>% 
+  pivot_wider(names_from = sex, values_from = mean_met) %>% 
+  filter(Female >= met_thr, Male >= met_thr) %>% 
+  pull(gene) 
+
+MethDep <- CT_genes %>% filter(regulated_by_methylation)
+bilan <- as_tibble(assay(mean_methylation_in_FGC), rownames = "gene") %>% 
+  filter(gene %in% Genes_methylated_in_soma | gene %in% MethDep$external_gene_name) %>% 
+  pivot_longer(names_to = "sample", values_to = "met", -gene) %>% 
+  left_join(all_genes %>% 
+              dplyr::select(external_gene_name, CT_gene_type, regulated_by_methylation, chr, X_linked) %>% 
+              dplyr::rename(gene = external_gene_name)) %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  mutate(CT_group = case_when(CT_gene_type != "CT_gene" & X_linked ~ "X-linked\nNon CG",
+                              CT_gene_type != "CT_gene" & chr %in% c(1:22) ~ "Autosome\nNon CG",
+                              CT_gene_type == "CT_gene" & X_linked & regulated_by_methylation ~ "X-linked\nMethDep",
+                              CT_gene_type == "CT_gene" & !X_linked & regulated_by_methylation ~ "Not X\nMethDep")) %>% 
+  filter(!is.na(CT_group)) %>% 
+  mutate(CT_group = factor(CT_group)) %>% 
+  left_join(as_tibble(colData(mean_methylation_in_FGC)) %>% 
+              dplyr::select(sample, group, type, time_week, sex, sex_time, sex_type, type) %>% 
+              dplyr::rename(FGC_group = group)) %>%
+  group_by(CT_group, gene, type, time_week, sex) %>%
+  summarise(mean_met = mean(met, na.rm = TRUE),
+            met_sd = sd(met, na.rm = TRUE),
+            median_met = median(met, na.rm = TRUE)) %>%
+  mutate(type_sex = case_when(type == "FGC" & sex == "F" ~ "Female FGC",
+                              type == "FGC" & sex == "M" ~ "Male FGC",
+                              type == "Soma"& sex == "F" ~ "Somatic cells",
+                              type == "Soma"& sex == "M" ~ "Somatic cells")) %>% 
+  mutate(sex = case_when(sex == "F" ~ "Female",
+                         sex == "M" ~ "Male")) %>% 
+  mutate(Group = paste0(CT_group, type, " ")) %>% 
+  mutate(Group = factor(Group, levels = c("X-linked MethDep FGC",
+                                          "X-linked MethDep Soma",
+                                          "Not X MethDep FGC",
+                                          "Not X MethDep Soma", 
+                                          "Not X Non CG FGC", 
+                                          "Not X Non CG Soma",
+                                          "X-linked Non CGF GC",
+                                          "X-linked Non CG Soma"))) 
+
+bilan$time_type <- paste0(bilan$type, " ", bilan$time_week, "W")
+bilan$time_type <- factor(bilan$time_type , levels = c("Soma 7W", "Soma 8W", "FGC 6W", "FGC 7W", "FGC 8W", "FGC 9W", "FGC 10W", "FGC 17W", "FGC 21W", "FGC 24W"))
+bilan$CT_group <- factor(bilan$CT_group, levels = c("X-linked\nMethDep", "Not X\nMethDep", "Autosome\nNon CG", "X-linked\nNon CG" ))
+
+bilan %>% ungroup() %>% dplyr::select(CT_group, gene) %>% unique %>% pull(CT_group) %>% table()
+
+
+library(ggh4x)
+strip_group_colors <- c(CT_group_colors[1] , CT_group_colors[2] , "gray40", "gray40")
+names(strip_group_colors) <- levels(bilan$CT_group)
+strip <- strip_themed(background_x = elem_list_rect(fill = strip_group_colors))
+
+fig <- bilan %>% 
+  filter(sex == "Female") %>% 
+  ggplot(aes(x = time_type, y = mean_met, fill = CT_group)) +
+  geom_boxplot(linewidth = 0.3,
+               alpha = 0.5,  color = "black",
+               outliers = F) +
+  scale_fill_manual(values = strip_group_colors) +
+  facet_grid2( ~ CT_group ,  scales = "free_x", space = "free",
+             drop = TRUE, strip = strip) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, 
+                                   size = 10,
+                                   vjust = 0.5,  
+                                   hjust = 1),
+        axis.title.y = element_text(size = 12),
+        axis.title.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        legend.position = "none",
+        strip.text.y = element_text(size = 12),
+        strip.text.x = element_text(size = 10, color = "white", face = "bold"),
+        strip.background = element_blank()) +
+    ylab("Mean promoter methylation") +
+  xlab("Time (week)") 
+
+fig
+
+pdf(file = "../figs/Fig7D_met_in_Female_FGC.pdf", width = 6, height = 5)
+fig
+dev.off()
+```
+
+
+```{r}
+bilan %>% 
+  filter(sex == "Female", type == "FGC") %>% 
+  ungroup() %>% 
+  group_by(CT_group, time_week) %>% 
+  dplyr::summarise("methylation (mean)" = mean(mean_met, na.rm = TRUE),
+                   "methylation (median)" = median(mean_met, na.rm = TRUE)) %>% 
+  DT::datatable()
+
+bilan %>% 
+  filter(sex == "Female", type == "FGC") %>% 
+  ungroup() %>% 
+  group_by(CT_group) %>% 
+  dplyr::summarise("methylation (mean)" = mean(mean_met, na.rm = TRUE),
+                   "methylation (median)" = median(mean_met, na.rm = TRUE)) %>% 
+  DT::datatable()
+```
+
+
+
+# Fig 7B: Proportion of CT genes expressed in Male and Female germ cells
+
+
+## Using all datasets  (FGC, oocytes and testis datasets)
+
+- Estimate the proportion of cells in wich each gene is detected.
+
+- Considered as "detected" if the gene is detected in more than 10% of a cell type
+
+```{r}
+FGC_sce <- CTdata::FGC_sce()
+FGC_sce <- FGC_sce[, FGC_sce$low_ncounts == "False"]
+FGC_sce <- FGC_sce[, FGC_sce$high_mito == "False"]
+
+
+dds_FGC <- scuttle::summarizeAssayByGroup(FGC_sce, 
+                            ids = colData(FGC_sce)[, "type"],
+                            statistics = "prop.detected")
+
+testis_sce <- CTdata::testis_sce()
+levels(testis_sce$type)[c(7,8)] <- "Sperm"
+germcells <-  c("SSC", "Spermatogonia", "Early_spermatocyte", 
+                "Late_spermatocyte", "Round_spermatid", 
+                "Elongated_spermatid", "Sperm")
+
+testis_sce <- testis_sce[, testis_sce$type %in% germcells]
+testis_sce$type <- factor(testis_sce$type, levels = germcells)
+
+dds_testis <- scuttle::summarizeAssayByGroup(testis_sce, 
+                            ids = colData(testis_sce)[, "type"],
+                            statistics = "prop.detected")
+
+
+oocytes_sce <- CTdata::oocytes_sce()
+oocytes_sce <- oocytes_sce[, oocytes_sce$type %in% c("Growing oocytes", "Metaphase II")]
+oocytes_sce$type <- droplevels(oocytes_sce$type)
+
+dds_oocytes <- scuttle::summarizeAssayByGroup(oocytes_sce, 
+                            ids = colData(oocytes_sce)[, "type"],
+                            statistics = "prop.detected")
+```
+
+- CG Genes detected in more than 10% of any cell type is considered as expressed in this cell type
+
+- Kept only CG genes detected in at least one cell type of any of the 3 datasets 
+
+- Removed Y-linked CG genes from the analysis
+
+
+```{r}
+genes_detected_in_dds_FGC <- names(dds_FGC)[rowMaxs(assay(dds_FGC[,])) > 0.1]
+
+selected_genes <- CT_genes %>% 
+  filter(chr != "Y") %>% 
+  filter(external_gene_name %in% genes_detected_in_dds_FGC) 
+
+
+bilan_FGC <- tibble(gene = names(rowSums(assay(dds_FGC[selected_genes$external_gene_name, 
+                                                   c("F_PGC", "F_GC", "F_oogonia", "F_oocyte")]) > 0.1) > 0),
+                detected_in_female_FGC = as.vector(rowSums(assay(dds_FGC[selected_genes$external_gene_name, 
+                                                                     c("F_PGC", "F_GC", "F_oogonia", "F_oocyte")]) > 0.1) > 0),
+                detected_in_male_FGC = as.vector(rowSums(assay(dds_FGC[selected_genes$external_gene_name, 
+                                                                   c("M_PGC", "M_GC", "M_pre_spermatogonia")]) > 0.1) > 0)) 
+
+
+```
+
+```{r}
+genes_detected_in_dds_testis <- names(dds_testis)[rowMaxs(assay(dds_testis[,], na.rm = TRUE)) > 0.1]
+
+selected_genes <- CT_genes %>% 
+  filter(chr != "Y") %>% 
+  filter(external_gene_name %in% genes_detected_in_dds_testis) 
+
+bilan_testis <- tibble(gene = names(rowSums(assay(dds_testis[selected_genes$external_gene_name, ]) > 0.1) > 0),
+                detected_in_male_adult = as.vector(rowSums(assay(dds_testis[selected_genes$external_gene_name, ]) > 0.1) > 0)) 
+
+
+```
+
+
+```{r}
+genes_detected_in_dds_oocytes <- names(dds_oocytes)[rowMaxs(assay(dds_oocytes[,], na.rm = TRUE)) > 0.1]
+
+selected_genes <- CT_genes %>% 
+  filter(chr != "Y") %>% 
+  filter(external_gene_name %in% genes_detected_in_dds_oocytes) 
+
+bilan_oocytes <- tibble(gene = names(rowSums(assay(dds_oocytes[selected_genes$external_gene_name, ]) > 0.1) > 0),
+                detected_in_Female_oocytes = as.vector(rowSums(assay(dds_oocytes[selected_genes$external_gene_name, ]) > 0.1) > 0))
+
+
+```
+
+```{r}
+bilan <- full_join(bilan_FGC, 
+          bilan_testis) %>% 
+  full_join(bilan_oocytes)
+
+bilan_by_male_female <- bilan %>% 
+rowwise() %>% 
+  mutate(detected_in_male = sum(detected_in_male_FGC, detected_in_male_adult, na.rm = TRUE)) %>% 
+  mutate(detected_in_female = sum(detected_in_female_FGC, detected_in_Female_oocytes, na.rm = TRUE)) %>% 
+  left_join(CT_genes %>% 
+              dplyr::select(external_gene_name, chr, regulated_by_methylation, X_linked) %>% 
+              dplyr::rename(gene = external_gene_name)) %>% 
+  filter(chr!= "Y") %>% 
+  mutate(group = case_when(regulated_by_methylation & X_linked ~ "X-linked\nMethDep",
+                           regulated_by_methylation & !X_linked ~ "Autosomal\nMethDep",
+                           !regulated_by_methylation  ~ "Non\nMethDep"))
+
+
+bilan_by_group <- bilan_by_male_female %>% 
+  group_by(group) %>% 
+  summarise("F" = sum(detected_in_female),
+            "M" = sum(detected_in_male))
+
+
+flextable(bilan_by_group, 
+                     cwidth = 1.5,
+                     cheight = 0.25) %>%
+  set_caption(as_paragraph(
+    as_chunk("Among genes detected in FGC, testis or oocytes dataset", 
+             props = fp_text_default(font.family = "Arial",
+                                                 font.size = 10))), 
+    word_stylename = "Table Caption",
+    align_with_table = TRUE
+  )
+bilan_by_group$group <- factor(bilan_by_group$group, levels = c("X-linked\nMethDep", "Autosomal\nMethDep", "Non\nMethDep"   ))
+
+
+names(CT_group_colors) <- c("X-linked\nMethDep", "Autosomal\nMethDep", "Non\nMethDep"   )
+strip <- strip_themed(background_x = elem_list_rect(fill = CT_group_colors))
+
+
+bilan_by_group <- bilan_by_group %>% 
+  pivot_longer(names_to = "detected_where", values_to = "Number of detected CG genes", -group) 
+
+bilan_by_group$detected_where <- factor(bilan_by_group$detected_where, levels = c("M", "F"   ))
+
+
+fig <- bilan_by_group %>% 
+  ggplot(aes(x = detected_where, y = `Number of detected CG genes`, fill = detected_where)) +
+  geom_col() +
+  scale_fill_manual(values = sex_colors) +
+  facet_grid2(~ group, strip = strip) +
+  theme_bw() +
+  theme(aspect.ratio = 1.5,
+        panel.grid = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 12, face = "bold"),
+        axis.text.x = element_text(size = 12, face = "bold"),
+        legend.position = "none",
+        strip.text.x = element_text(size = 12, color = "white", face = "bold")) +
+  ylab("Number of CG\ngenes detected")
+
+
+fig
+
+pdf(file = "../figs/Fig7B_Genes_detected_in_Male_and_Female.pdf", width = 4, height = 3)
+fig
+dev.off()
+
+
+```
+
+
+
+```{r}
+bilan_by_group$group <- gsub("\n", x = bilan_by_group$group, replacement = " ")
+knitr::kable(bilan_by_group[1:2,])
+
+chisq.test(bilan_by_group$`Number of detected CG genes`[1:2], p = c(0.5, 0.5))
+
+knitr::kable(bilan_by_group[3:4,])
+chisq.test(bilan_by_group$`Number of detected CG genes`[3:4], p = c(0.5, 0.5))
+
+knitr::kable(bilan_by_group[5:6,])
+chisq.test(bilan_by_group$`Number of detected CG genes`[5:6], p = c(0.5, 0.5))
+
+
+```
+
+
+
+# session info
+
+```{r}
+sessionInfo()
+```
+

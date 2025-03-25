@@ -1,0 +1,1159 @@
+---
+title: "X-linked MethDep in early embryos, Zhu scWGBS data"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+
+```{r, echo = FALSE, Results = 'asis'}
+suppressPackageStartupMessages(library("dplyr"))
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+```{r}
+library("tidyverse")
+library("ComplexHeatmap")
+library("CTexploreR")
+library("circlize")
+library("SummarizedExperiment")
+library("SingleCellExperiment")
+library("DESeq2")
+```
+
+#
+
+```{r}
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 3),
+  title_gp = gpar(col = "black", fontsize = 3, fontface = "bold"),
+  simple_anno_size = unit(0.1, "cm"),
+  row_names_gp = gpar(fontsize = 1),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.1),
+  grid_width = unit(0.1, "cm"),
+  grid_height = unit(0.01, "cm"),
+  legend_height = unit(0.1, "cm"))
+
+sex_colors<- c("XX" = "deeppink",
+               "XY"= "steelblue",
+               "X" = "gray20")
+
+
+CT_genes_X_met <- all_genes %>% 
+  filter(CT_gene_type == "CT_gene") %>% 
+  filter(X_linked, regulated_by_methylation) %>% 
+  pull(external_gene_name)
+```
+
+
+Data from:
+[Single-cell DNA methylome sequencing of human preimplantation embryos. Nat Genet 50, 12–19 (2018). Zhu, P., Guo, H., Ren, Y. et al.](https://doi.org/10.1038/s41588-017-0007-6)
+
+# Selection of X-linked CG MethDep genes initially methylated in oocytes
+
+```{r}
+non_missing_values_thr <- 5
+met_thr_in_oocytes <- 33 #30
+met_thr_in_sperm <- 33 #30
+```
+
+
+
+Selected X-linked CG MethDep genes initially methylated in oocytes
+
+
+
+Selection procedure:
+
+- Selected all X-linked genes with at least `r non_missing_values_thr` methylation values in each cell type (oocytes and sperm cells)
+
+- Selected X-linked genes showing at least `r met_thr_in_oocytes`% methylation in MII oocytes (but less than `r met_thr_in_sperm`% in sperm)
+
+- Kept Sperm cells carrying an X chromosome
+
+```{r}
+mean_met <- CTdata::mean_methylation_in_embryo()
+mean_met <- mean_met[rowRanges(mean_met)$external_gene_name %in% CT_genes_X_met,]
+
+Y_sperm_cells <- as_tibble(colData(mean_met), rownames = "cell") %>% 
+  filter(Genotype.of.the.embryo == "Y") %>% 
+  pull(cell)
+
+genes_selected_in_oocytes <- as_tibble(assay(mean_met), rownames = "gene") %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met), rownames = "cell")) %>% 
+  filter(!cell %in% Y_sperm_cells) %>% 
+  filter(Genotype.of.the.embryo != "XXX") %>% 
+  dplyr::rename(Genotype = Genotype.of.the.embryo) %>% 
+  filter(!low_quality) %>% 
+  filter(Stage %in% c("MII Oocyte")) %>% 
+  filter(!is.na(met)) %>% 
+  group_by(gene) %>% 
+  dplyr::count() %>% 
+  filter(n >= non_missing_values_thr) %>% 
+  pull(gene)
+
+genes_selected_in_sperm <- as_tibble(assay(mean_met), rownames = "gene") %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met), rownames = "cell")) %>% 
+  filter(!cell %in% Y_sperm_cells) %>% 
+  filter(Genotype.of.the.embryo != "XXX") %>% 
+  dplyr::rename(Genotype = Genotype.of.the.embryo) %>% 
+  filter(!low_quality) %>% 
+  filter(Stage %in% c("Sperm"))%>% 
+  filter(!is.na(met)) %>% 
+  group_by(gene) %>% 
+  dplyr::count() %>% 
+  filter(n >= non_missing_values_thr) %>% 
+  pull(gene)
+
+genes_selected <- BiocGenerics::intersect(genes_selected_in_oocytes, genes_selected_in_sperm)
+
+bilan <- as_tibble(assay(mean_met), rownames = "gene") %>% 
+  filter(gene %in% genes_selected) %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met), rownames = "cell")) %>% 
+  filter(!cell %in% Y_sperm_cells) %>% 
+  filter(Genotype.of.the.embryo != "XXX") %>% 
+  dplyr::rename(Genotype = Genotype.of.the.embryo) %>% 
+  filter(!low_quality) %>% 
+  filter(Stage %in% c("MII Oocyte", "Sperm")) %>% 
+  group_by(gene, Stage, Genotype) %>% 
+  dplyr::summarise(mean_met = mean(met, na.rm = TRUE)) %>% 
+  mutate(stage_sex = paste0(Stage, '_', Genotype)) 
+
+```
+
+
+
+
+
+
+```{r}
+genes_methylated_in_oocytes <- bilan %>% 
+  filter(Stage %in% c("MII Oocyte")) %>% 
+  arrange(mean_met) %>% 
+  filter(mean_met >= met_thr_in_oocytes) %>% 
+  pull(gene)
+
+met_in_sperm_genes <- bilan %>% 
+  filter(Stage %in% c("Sperm")) %>% 
+  arrange(mean_met) %>% 
+  filter(mean_met > met_thr_in_sperm) %>% 
+  pull(gene)
+
+selected_genes <- genes_methylated_in_oocytes[!genes_methylated_in_oocytes %in% met_in_sperm_genes]
+
+bilan %>% 
+  mutate(selected = ifelse(gene %in% selected_genes, "kept", "removed")) %>% 
+  filter(Stage %in% c("MII Oocyte")) %>% 
+  arrange(mean_met) %>% 
+  left_join(all_genes %>% dplyr::rename(gene = external_gene_name) %>% dplyr::select(gene, CT_gene_type)) %>% 
+  ggplot(aes(x = gene, y = mean_met, color = selected, label = gene)) +
+  geom_point() +
+  geom_hline(yintercept = met_thr_in_oocytes) +
+  theme(axis.text.x = element_blank(),
+        legend.position = "bottom")  +
+  geom_text( color = "black", size = 3) 
+  
+```
+
+
+
+
+```{r}
+tested_genes <- as_tibble(assay(mean_met), rownames = "gene") %>% 
+  filter(gene %in% selected_genes) %>% 
+  pull(gene)
+tested_genes
+length(tested_genes)
+
+bilan_selected <- as_tibble(assay(mean_met), rownames = "gene") %>% 
+  filter(gene %in% tested_genes) %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met), rownames = "cell")) %>% 
+  filter(!cell %in% Y_sperm_cells) %>% 
+  filter(Genotype.of.the.embryo != "XXX") %>% 
+  dplyr::rename(Genotype = Genotype.of.the.embryo) %>% 
+  #filter(!low_quality) %>%  # otherwise no more XX-8-cells 
+  filter(!Stage %in% c("GV Oocyte")) %>% 
+  group_by(gene, Stage, Genotype) %>% 
+  dplyr::summarise(mean_met = mean(met, na.rm = TRUE)) %>% 
+  mutate(stage_sex = paste0(Stage, '_', Genotype)) 
+
+
+levels(bilan_selected$Stage)[10] <- "Post-impl"
+
+fig <- bilan_selected %>% 
+  ggplot(aes(x = Stage, y = mean_met, group = Genotype)) +
+  geom_boxplot(aes(x = Stage, y = mean_met, group = stage_sex, 
+                   color = Genotype, fill = Genotype), 
+               outliers = FALSE,alpha = 0.1) +
+  scale_color_manual(values = sex_colors) +
+  scale_fill_manual(values = sex_colors) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12, face = "bold"),
+        axis.title.y = element_text(size = 12, face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(linewidth = 0.2)) +
+  ylab("Mean promoter methylation (%)") +
+  xlab('')
+
+fig
+
+pdf(file = paste0("../figs/Fig8A_CG_met_in_Male_and_Female_embryos.pdf"),
+    width = 5, height = 4)
+fig
+dev.off()
+
+```
+
+
+
+
+# Example of genes showing a transient imprint in early embryos
+
+```{r}
+gamete_colors <- c("MII oocytes" = "deeppink",
+               "Sperm"= "steelblue")
+
+MethDep_colors <- c("MethDep" = "indianred2",
+"Non-MethDep"= "cyan4")
+
+Stage_col <- c("GV Oocyte" = "mediumvioletred", "MII Oocyte" = "brown4", 
+               "Sperm" = "palegreen2", "Zygote" = "lightgoldenrod1", 
+               "2-cell" = "ivory2", "4-cell" = "lightslateblue", 
+               "8-cell" = "plum2", "Morula" = "deepskyblue",
+               "Blastocyst" = "sienna1",  "Post-implantation" = "peachpuff")
+
+stage_level_col <- 
+  c("GV Oocyte" = "mediumvioletred", "MII Oocyte" = "brown4", 
+    "Sperm" = "palegreen2", 
+    "PN-early" = "yellow", "PN-mid" = "gold", "PN-late" = "gold4",
+    "2-cell" = "ivory2", "4-cell" = "lightslateblue", 
+    "8-cell" = "plum2", "Morula" = "deepskyblue",
+    "Blastocyst (Mixed)" = "sienna1",  "Blastocyst (ICM)" = "indianred1",
+    "Blastocyst (TE)" = "purple", "Heart" = "steelblue", "Villus" = "gray" )
+```
+
+
+```{r}
+methylation_in_embryo <- CTdata::methylation_in_embryo()
+load("/storage/research/dduv/cbio-lg/cluster/Packages/CTdata/inst/extdata/all_promoter_regions_hg19.rda")
+
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 10),
+  title_gp = gpar(col = "black", fontsize = 10, fontface = "bold"),
+  simple_anno_size = unit(0.1, "cm"),
+  row_names_gp = gpar(fontsize = 1),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.1),
+  grid_width = unit(0.3, "cm"),
+  grid_height = unit(0.3, "cm"),
+  legend_height = unit(0.5, "cm"))
+```
+
+
+```{r}
+
+promoter_methylation_by_GR <- function(GR = NULL, 
+                                       nt_up = 1000,
+                                       nt_down = 500,
+                                       sc_or_bulk = NULL, # NULL, single or bulk
+                                       genotype = NULL,
+                                       stage = NULL,
+                                       split_by = "stage_level",
+                                       rm_low_quality = TRUE,
+                                       rm_cell_with_only_missing_values = TRUE,
+                                       clustRow = FALSE,
+                                       fs = 6){
+
+  x <- GR
+  gene <- x$external_gene_name
+  tested_gene_GR <- subsetByOverlaps(methylation_in_embryo, x)
+  CpGpos <- tested_gene_GR@rowRanges@ranges@start
+  TSS_hg19 <- x$TSS_liftover
+  if(as.vector(x@strand) == '+'){
+    CpGpositions <- CpGpos - x$TSS_liftover
+  }
+  if(as.vector(x@strand) == '-'){
+    CpGpositions <- x$TSS_liftover  - CpGpos 
+  }
+  df_col <- colData(tested_gene_GR)
+  if (rm_low_quality) df_col <- df_col[!is.na(df_col$low_quality) & !df_col$low_quality,]
+  if (!is.null(stage)) df_col <- df_col[df_col$stage_level %in% stage, ]
+  if (!is.null(genotype)) df_col <- df_col[df_col$`Genotype of the embryo` %in% genotype, ]
+  df_col <- df_col[!df_col$`Genotype of the embryo` %in% "XXX", ]
+  if (!is.null(sc_or_bulk)){
+    if(sc_or_bulk == "single"){
+      df_col <- df_col[df_col$`Single Cell or Bulk cell` == "single cell", ]
+    }
+    if(sc_or_bulk == "bulk"){
+      df_col <- df_col[df_col$`Single Cell or Bulk cell` == "bulk cells", ]
+    }
+  }
+  
+  df_col <- df_col[order(df_col$stage_level, df_col$`Genotype of the embryo`),] 
+  
+  y <- as_tibble(assay(tested_gene_GR)[, df_col$Sample_Name]) %>% 
+    mutate(CpG = CpGpositions) %>% dplyr::select(CpG, everything()) %>% 
+    filter(CpG > -nt_up & CpG < nt_down) %>% 
+   #  filter(CpG > -nt_arround_TS & CpG < nt_arround_TS) %>% 
+    arrange(CpG) %>% 
+    pivot_longer(names_to = "Sample_Name", values_to = "met", -CpG) %>% 
+    pivot_wider(names_from = CpG, values_from = met)
+  mat <- as.matrix(y[, -1])
+  rownames(mat) <- y$Sample_Name
+
+  if (rm_cell_with_only_missing_values) {
+    if (length(which(rowSums(is.na(mat)) == ncol(mat))) > 0) {
+      mat <- mat[-which(rowSums(is.na(mat)) == ncol(mat)), ,drop = F]
+      df_col <- df_col[rownames(mat),]
+    }
+  }
+  
+  rowSplit <- df_col$stage_level
+  if (split_by == "Stage") {
+    df_col <- df_col[order(df_col$Stage, df_col$`Genotype of the embryo`),] 
+    rowSplit <- df_col$Stage
+  }
+  
+  if (split_by == "embryo") {
+    df_col$embryo <- paste0(df_col$stage_level, "_", df_col$individual)
+    df_col$embryo[df_col$stage_level %in% c("GV Oocyte")] <- "GV Oocyte"
+    df_col$embryo[df_col$stage_level %in% c("MII Oocyte")] <- "MII Oocyte"
+    df_col$embryo[df_col$stage_level %in% c("Sperm")] <- "Sperm"
+    df_col$embryo[df_col$stage_level %in% c("2-cell")] <- "2-cell"
+        df_col$embryo[df_col$stage_level %in% c("4-cell")] <- "4-cell"
+            df_col$embryo[df_col$stage_level %in% c("8-cell")] <- "8-cell"
+    df_col$embryo[df_col$stage_level %in% c("Heart")] <- "Heart"
+    df_col$embryo[df_col$stage_level %in% c("Villus")] <- "Villus"
+    df_col <- df_col[order(df_col$stage_level, df_col$`Genotype of the embryo`, df_col$embryo),] 
+    rowSplit <- factor(df_col$embryo, levels = unique(df_col$embryo))
+  }
+
+  Genotype <- as.matrix(df_col$`Genotype of the embryo`)
+  rownames(Genotype) <- df_col$Sample_Name
+  row_ha_Genotype <- rowAnnotation(Genotype = Genotype,
+                              na_col = "gray80",
+                              annotation_legend_param = legends_param,
+                              simple_anno_size = unit(0.2, "cm"),
+                              col = list(Genotype = c("XX" = "deeppink",
+                                                 "XY"= "steelblue",
+                                                 "X" = "pink",
+                                                 "Y"= "dodgerblue",
+                                                 "XXX" = "orange")),
+                              annotation_name_gp = gpar(fontsize = 0))
+
+  Stage <- as.matrix(df_col$Stage)
+  rownames(Stage) <- df_col$Stage
+  row_ha_Stage <- rowAnnotation(Stage = Stage,
+                              na_col = "gray80",
+                              annotation_legend_param = legends_param,
+                              simple_anno_size = unit(0.2, "cm"),
+                             # col = list(Stage = Stage_col),
+                              annotation_name_gp = gpar(fontsize = 0))
+  
+  stage_level <- as.matrix(df_col$stage_level)
+  rownames(stage_level) <- df_col$stage_level
+  row_ha_stage_level <- rowAnnotation(stage_level = stage_level,
+                              na_col = "gray80",
+                              annotation_legend_param = legends_param,
+                              simple_anno_size = unit(0.2, "cm"),
+                              col = list(stage_level = stage_level_col),
+                              annotation_name_gp = gpar(fontsize = 0))
+  data_type <- as.matrix(df_col$bulk_or_single_cell)
+  rownames(data_type) <- df_col$bulk_or_single_cell
+  row_ha_data_type <- rowAnnotation(data_type = data_type,
+                              na_col = "gray80",
+                              annotation_legend_param = legends_param,
+                              simple_anno_size = unit(0.2, "cm"),
+                              col = list(data_type = c("bulk cells" = "black",
+                                         "single cell" = "cyan")),
+                              annotation_name_gp = gpar(fontsize = 0))
+  
+
+  
+  h <- Heatmap(mat[rownames(df_col), ],
+               column_title = paste0('Promoter methylation of ', gene, " TSS ", TSS_hg19, " (hg19)"),
+               name = 'Met',
+               row_split = rowSplit,
+               cluster_row_slices = FALSE,
+               row_gap = unit(c(1), "mm"),
+               row_title_gp = gpar(fontsize = 8, fontface = "bold"),
+               row_title_rot = 0,
+               col = colorRamp2(c(1:100),colorRampPalette(
+                 c("moccasin","dodgerblue4"))(100)),
+               na_col = "gray80",
+               clustering_method_rows = "ward.D",
+               cluster_rows = clustRow,
+               cluster_columns = FALSE,
+               show_row_names = TRUE,
+               show_column_names = TRUE,
+               show_heatmap_legend = TRUE,
+               show_row_dend = FALSE,
+               right_annotation = c(row_ha_Genotype,  #row_ha_Stage,
+                                    #row_ha_stage_level,
+                                    #row_ha_data_type,
+                                      gap = unit(1, "mm")),
+               row_names_gp = gpar(fontsize = fs),
+               column_names_gp = gpar(fontsize = fs),
+               column_names_side = "bottom",
+               row_names_side = "left")
+  
+  print(h) 
+}
+```
+
+
+```{r}
+promoter_methylation_fig <- function(GR = NULL, 
+                                     title = "",
+                                     nt_up = 1000,
+                                     nt_down = 500,
+                                     sc_or_bulk = NULL, # NULL, single or bulk
+                                     genotype = NULL,
+                                     stage = NULL,
+                                     split_by = "stage_level",
+                                     rm_low_quality = TRUE,
+                                     rm_cell_with_only_missing_values = TRUE,
+                                     show_legend = TRUE,
+                                     cell_per_type = NULL,
+                                     clustRow = FALSE,
+                                     h_width = 5,
+                                     h_height = 10,
+                                     rowtitle_fs = 7,
+                                     coltitle_fs = 7,
+                                     CpG_n_fs = 4,
+                                     fs = 6){
+  x <- GR
+  gene <- x$external_gene_name
+  tested_gene_GR <- subsetByOverlaps(methylation_in_embryo, x)
+  CpGpos <- tested_gene_GR@rowRanges@ranges@start
+  TSS_hg19 <- x$TSS_liftover
+  if(as.vector(x@strand) == '+'){
+    CpGpositions <- CpGpos - x$TSS_liftover
+  }
+  if(as.vector(x@strand) == '-'){
+    CpGpositions <- x$TSS_liftover  - CpGpos 
+  }
+  
+  df_col <- colData(tested_gene_GR)
+  if (rm_low_quality) df_col <- df_col[!is.na(df_col$low_quality) & !df_col$low_quality,]
+  if (!is.null(stage)) df_col <- df_col[df_col$stage_level %in% stage, ]
+  if (!is.null(genotype)) df_col <- df_col[df_col$`Genotype of the embryo` %in% genotype, ]
+  df_col <- df_col[!df_col$`Genotype of the embryo` %in% "XXX", ]
+  
+  if (!is.null(sc_or_bulk)){
+    if(sc_or_bulk == "single"){
+      df_col <- df_col[df_col$`Single Cell or Bulk cell` == "single cell", ]
+    }
+    if(sc_or_bulk == "bulk"){
+      df_col <- df_col[df_col$`Single Cell or Bulk cell` == "bulk cells", ]
+    }
+  }
+  
+  df_col <- df_col[!df_col$Sample_Name %in% c("Icm03-W-s64","scBS-C-MII-9"), ]
+  
+  
+  y <- as_tibble(assay(tested_gene_GR)[, df_col$Sample_Name]) %>% 
+    mutate(CpG = CpGpositions) %>% dplyr::select(CpG, everything()) %>% 
+    filter(CpG > -nt_up & CpG < nt_down) %>% 
+    #  filter(CpG > -nt_arround_TS & CpG < nt_arround_TS) %>% 
+    arrange(CpG) %>% 
+    pivot_longer(names_to = "Sample_Name", values_to = "met", -CpG) %>% 
+    pivot_wider(names_from = CpG, values_from = met)
+  mat <- as.matrix(y[, -1])
+  rownames(mat) <- y$Sample_Name
+  
+  
+  # calculate mean in each sample, to be able to order sequences within in group
+  # in fonction of the methylation level
+  df_col$median_met <- rowMedians(mat, na.rm = T)
+  df_col$prop_of_missing_values <- (rowSums(is.na(mat)) / ncol(mat))
+  
+  if (rm_cell_with_only_missing_values) df_col <- df_col[df_col$prop_of_missing_values < 1, ]
+  
+  if (!is.null(cell_per_type)){
+    ### Keep n max cell per group, keeping the samples with the less missing values
+    
+    kept <- as_tibble(df_col) %>% 
+      filter(Stage %in% cell_per_type$Stage[1]) %>% 
+      arrange(prop_of_missing_values) %>% 
+      head(pull(cell_per_type[1, 2])) %>% 
+      pull(Sample_Name)
+    for (i in seq_along(cell_per_type$Stage)[-1]){
+      tmp <- as_tibble(df_col) %>% 
+        filter(Stage %in% cell_per_type$Stage[i]) %>% 
+        arrange(prop_of_missing_values) %>% 
+        head(pull(cell_per_type[i, 2])) %>% 
+        pull(Sample_Name)
+      kept <- c(kept, tmp)
+    }
+    df_col <- df_col[df_col$Sample_Name %in% kept, ] 
+  }
+  
+  df_col <- df_col[order(df_col$stage_level, df_col$`Genotype of the embryo`, df_col$median_met),] 
+  
+  rowSplit <- df_col$stage_level
+  
+  if (split_by == "Stage") {
+    df_col <- df_col[order(df_col$Stage, df_col$`Genotype of the embryo`, df_col$median_met),] 
+    rowSplit <- df_col$Stage
+  }
+  
+  
+  if (split_by == "embryo") {
+    df_col$embryo <- paste0(df_col$stage_level, "_", df_col$individual)
+    df_col$embryo[df_col$stage_level %in% c("GV Oocyte")] <- "GV Oocyte"
+    df_col$embryo[df_col$stage_level %in% c("MII Oocyte")] <- "MII Oocyte"
+    df_col$embryo[df_col$stage_level %in% c("Sperm")] <- "Sperm"
+    df_col$embryo[df_col$stage_level %in% c("2-cell")] <- "2-cell"
+    df_col$embryo[df_col$stage_level %in% c("4-cell")] <- "4-cell"
+    df_col$embryo[df_col$stage_level %in% c("8-cell")] <- "8-cell"
+    df_col$embryo[df_col$stage_level %in% c("Heart")] <- "Heart"
+    df_col$embryo[df_col$stage_level %in% c("Villus")] <- "Villus"
+    df_col <- df_col[order(df_col$stage_level, df_col$`Genotype of the embryo`, df_col$embryo, df_col$mean_met),] 
+    rowSplit <- factor(df_col$embryo, levels = unique(df_col$embryo))
+  }
+  
+  Genotype <- as.matrix(df_col$`Genotype of the embryo`)
+  rownames(Genotype) <- df_col$Sample_Name
+  row_ha_Genotype <- rowAnnotation(Genotype = Genotype,
+                                   na_col = "gray80",
+                                   annotation_legend_param = legends_param,
+                                   simple_anno_size = unit(0.2, "cm"),
+                                   col = list(Genotype = c("XX" = "deeppink",
+                                                           "XY"= "steelblue",
+                                                           "X" = "pink",
+                                                           "Y"= "dodgerblue",
+                                                           "XXX" = "orange")),
+                                   annotation_name_gp = gpar(fontsize = 0))
+  
+  
+  Stage <- as.matrix(df_col$Stage)
+  rownames(Stage) <- df_col$Stage
+  row_ha_Stage <- rowAnnotation(Stage = Stage,
+                                na_col = "gray80",
+                                annotation_legend_param = legends_param,
+                                simple_anno_size = unit(0.2, "cm"),
+                                col = list(Stage = Stage_col),
+                                annotation_name_gp = gpar(fontsize = 0))
+  
+  stage_level <- as.matrix(df_col$stage_level)
+  rownames(stage_level) <- df_col$stage_level
+  row_ha_stage_level <- rowAnnotation(stage_level = stage_level,
+                                       na_col = "gray80",
+                                       annotation_legend_param = legends_param,
+                                       simple_anno_size = unit(0.2, "cm"),
+                                       col = list(stage_level = stage_level_col),
+                                       annotation_name_gp = gpar(fontsize = 0))
+  data_type <- as.matrix(df_col$bulk_or_single_cell)
+  rownames(data_type) <- df_col$bulk_or_single_cell
+  row_ha_data_type <- rowAnnotation(data_type = data_type,
+                                    na_col = "gray80",
+                                    annotation_legend_param = legends_param,
+                                    simple_anno_size = unit(0.2, "cm"),
+                                    col = list(data_type = c("bulk cells" = "black",
+                                                             "single cell" = "cyan")),
+                                    annotation_name_gp = gpar(fontsize = 0))
+  
+  
+  if (all(all_of(df_col$`Genotype of the embryo`) %in% c("X", "XX"))) gender <- "Female"
+  if (all(all_of(df_col$`Genotype of the embryo`) %in% c("Y", "XY"))) gender <- "Male"
+  
+  ht_opt$TITLE_PADDING = unit(c(2.5, 5), "points")
+  h <- Heatmap(mat[rownames(df_col), ],
+               column_title = title,
+               name = "Met",
+               row_split = rowSplit,
+               cluster_row_slices = FALSE,
+               row_gap = unit(c(3), "mm"),
+               border = TRUE,
+               border_gp = gpar(lwd = 0.1),
+               row_title_gp = gpar( fontsize = rowtitle_fs, fontface = "bold"),
+               column_title_gp = gpar(fontsize = coltitle_fs, fontface = "bold"),
+               row_title_rot = 90,
+               col = colorRamp2(c(1:100),colorRampPalette(
+                 c("moccasin","dodgerblue4"))(100)),
+               na_col = "gray80",
+               clustering_method_rows = "ward.D",
+               cluster_rows = clustRow,
+               cluster_columns = FALSE,
+               show_row_names = FALSE,
+               show_column_names = TRUE,
+               show_heatmap_legend = show_legend,
+               show_row_dend = FALSE,
+               row_names_gp = gpar(fontsize = fs),
+               column_names_gp = gpar(fontsize = CpG_n_fs),
+               heatmap_width = unit(h_width, "cm"),
+               heatmap_height = unit(h_height, "cm"),
+               column_names_side = "bottom",
+               row_names_side = "left",
+               heatmap_legend_param = legends_param)
+  
+  print(h) 
+}
+
+
+```
+
+# MAGEC2 Figures
+
+
+```{r}
+my_gene <- "MAGEC2"
+my_GR <- all_promoter_regions_hg19[all_promoter_regions_hg19$external_gene_name == my_gene,]
+
+promoter_methylation_by_GR(GR = my_GR[1], 
+                           nt_up = 1000,
+                           nt_down = 500,
+                           sc_or_bulk = NULL,
+                           #genotype = "XX",
+                           #stage = "MII Oocyte",
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE,
+                           rm_cell_with_only_missing_values = TRUE,
+                           clustRow = FALSE,
+                           fs = 2)
+```
+
+Show Promoter region -/- 1000 pb around TSS
+
+```{r}
+
+prom_region <- c(1000, 1000)
+
+my_GR <- all_promoter_regions_hg19[all_promoter_regions_hg19$external_gene_name == my_gene,]
+gene <- my_GR$external_gene_name
+
+cell_per_type <- tibble(Stage = c("MII Oocyte", "Sperm"),
+                        n = c(10, 10))
+
+
+A <- cowplot::plot_grid(grid.grabExpr(
+  draw(promoter_methylation_fig(GR = my_GR[1], 
+            title = "Oocytes",
+            show_legend = FALSE,
+            rowtitle_fs = 0,
+            CpG_n_fs = 2.5,
+            nt_up = prom_region[1],
+            nt_down = prom_region[2],
+            sc_or_bulk = NULL,
+            genotype = c("X", "XX"),
+            stage = c("MII Oocyte") ,
+            #split_by = "individual",
+            split_by = "Stage",
+            rm_low_quality = FALSE,
+            rm_cell_with_only_missing_values = TRUE,
+            cell_per_type = cell_per_type,
+            clustRow = FALSE,
+            h_width = 4,
+            h_height = 2,
+            fs = 0)),  labels = c('A')))
+
+B <- cowplot::plot_grid(grid.grabExpr(
+  draw(promoter_methylation_fig(GR = my_GR[1], 
+            title = "Sperm",
+            show_legend = FALSE,
+            rowtitle_fs = 0,
+             CpG_n_fs = 2.5,
+             nt_up = prom_region[1],
+            nt_down = prom_region[2],
+            sc_or_bulk = NULL,
+            genotype = c("X", "XX"),
+            stage = c("Sperm") ,
+            #split_by = "individual",
+            split_by = "Stage",
+            rm_low_quality = FALSE,
+            rm_cell_with_only_missing_values = TRUE,
+            cell_per_type = cell_per_type,
+            clustRow = FALSE,
+            h_width = 4,
+            h_height = 2,
+            fs = 0)),  labels = c('A')))
+
+figA <- cowplot::plot_grid(A, B, 
+                   # rel_widths = c(2,1),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 2,
+                   align = "h")
+
+# pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_Oocytes_Sperm.pdf"))#, height = 3, width =4)
+# figA
+# dev.off()
+
+
+# Show the same number of cells in male and female embryos
+# Define the number of cells per stage manually
+cell_per_type <- tibble(Stage = c("Zygote", #"2-cell", "4-cell", "8-cell", 
+                                  "Morula", "Blastocyst", "Post-implantation"),
+                        n = c(6, #8, 8, 8, 
+                              10, 12, 4))
+
+
+cell_per_type <- tibble(Stage = c("Zygote", #"2-cell", "4-cell", "8-cell", 
+                                  "Morula", "Blastocyst", "Post-implantation"),
+                        n = c(10, #8, 8, 8, 
+                              10, 20, 4))
+
+D <- cowplot::plot_grid(grid.grabExpr(draw(
+  promoter_methylation_fig(GR = my_GR[1], 
+                           title = "Female",
+                           show_legend = FALSE,
+                           rowtitle_fs = 8,
+                           coltitle_fs = 10,
+                           CpG_n_fs = 2.5,
+                           nt_up = prom_region[1],
+                           nt_down = prom_region[2],
+                           sc_or_bulk = "single",
+                           genotype = c("X", "XX"),
+                           stage = c("PN-early", "PN-mid", "PN-late", "2-cell", #"4-cell", 
+                                     "8-cell", "Morula", "Blastocyst (Mixed)", 
+                                     "Blastocyst (ICM)", "Heart", "Villus"),    
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE, # otherwise not enough samples
+                           rm_cell_with_only_missing_values = TRUE,
+                           cell_per_type = cell_per_type,
+                           clustRow = FALSE,
+                           h_width = 4,
+                           h_height =5,
+                           fs = 8)),  labels = c('A')))
+
+E <- cowplot::plot_grid(grid.grabExpr(draw(
+  promoter_methylation_fig(GR = my_GR[1], 
+                           title = "Male",
+                           rowtitle_fs = 8,
+                           coltitle_fs = 10,
+                          CpG_n_fs = 2.5,
+                           nt_up = prom_region[1],
+                           nt_down = prom_region[2],
+                           sc_or_bulk = "single",
+                           genotype = c("Y", "XY"),
+                           stage = c("PN-early", "PN-mid", "PN-late", "2-cell", "4-cell", 
+                                     "8-cell", 
+                                     "Morula", "Blastocyst (Mixed)", "Blastocyst (ICM)", "Heart", "Villus"),       
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE, # otherwise not enough samples
+                           rm_cell_with_only_missing_values = TRUE,
+                           cell_per_type = cell_per_type,
+                           clustRow = FALSE,
+                           h_width = 4,
+                           h_height =5,
+                           fs = 8)),  labels = c('B')))
+
+figB<- cowplot::plot_grid(D,E, 
+                   # rel_widths = c(2,1),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 1,
+                   align = "h")
+
+# pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_embryos.pdf"))#, height = 3, width = 3)
+# figB
+# dev.off()
+
+figC <- cowplot::plot_grid(figA, figB,
+                    rel_heights = c(1,1.6),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 2,
+                   align = "h",
+                   labels = my_gene)
+
+
+pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_embryos.pdf"), height = 3.5, width = 4.5)
+figC
+dev.off()
+
+figC
+```
+
+
+
+
+
+
+# DDX53 Figures
+
+
+```{r}
+my_gene <- "DDX53"
+my_GR <- all_promoter_regions_hg19[all_promoter_regions_hg19$external_gene_name == my_gene,]
+
+promoter_methylation_by_GR(GR = my_GR[1], 
+                           nt_up = 1000,
+                           nt_down = 500,
+                           sc_or_bulk = NULL,
+                           #genotype = "XX",
+                           #stage = "MII Oocyte",
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE,
+                           rm_cell_with_only_missing_values = TRUE,
+                           clustRow = FALSE,
+                           fs = 2)
+```
+
+Show Promoter region -/- 1000 pb around TSS
+
+```{r}
+prom_region <- c(1000, 1000)
+
+my_GR <- all_promoter_regions_hg19[all_promoter_regions_hg19$external_gene_name == my_gene,]
+gene <- my_GR$external_gene_name
+
+cell_per_type <- tibble(Stage = c("MII Oocyte", "Sperm"),
+                        n = c(10, 10))
+
+
+A <- cowplot::plot_grid(grid.grabExpr(
+  draw(promoter_methylation_fig(GR = my_GR[1], 
+            title = "Oocytes",
+            show_legend = FALSE,
+            rowtitle_fs = 0,
+            CpG_n_fs = 2.5,
+            nt_up = prom_region[1],
+            nt_down = prom_region[2],
+            sc_or_bulk = NULL,
+            genotype = c("X", "XX"),
+            stage = c("MII Oocyte") ,
+            #split_by = "individual",
+            split_by = "Stage",
+            rm_low_quality = FALSE,
+            rm_cell_with_only_missing_values = TRUE,
+            cell_per_type = cell_per_type,
+            clustRow = FALSE,
+            h_width = 4,
+            h_height = 2,
+            fs = 0)),  labels = c('A')))
+
+B <- cowplot::plot_grid(grid.grabExpr(
+  draw(promoter_methylation_fig(GR = my_GR[1], 
+            title = "Sperm",
+            show_legend = FALSE,
+            rowtitle_fs = 0,
+             CpG_n_fs = 2.5,
+             nt_up = prom_region[1],
+            nt_down = prom_region[2],
+            sc_or_bulk = NULL,
+            genotype = c("X", "XX"),
+            stage = c("Sperm") ,
+            #split_by = "individual",
+            split_by = "Stage",
+            rm_low_quality = FALSE,
+            rm_cell_with_only_missing_values = TRUE,
+            cell_per_type = cell_per_type,
+            clustRow = FALSE,
+            h_width = 4,
+            h_height = 2,
+            fs = 0)),  labels = c('A')))
+
+figA <- cowplot::plot_grid(A, B, 
+                   # rel_widths = c(2,1),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 2,
+                   align = "h")
+
+# pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_Oocytes_Sperm.pdf"))#, height = 3, width =4)
+# figA
+# dev.off()
+
+
+# Show the same number of cells in male and female embryos
+# Define the number of cells per stage manually
+cell_per_type <- tibble(Stage = c("Zygote", #"2-cell", "4-cell", "8-cell", 
+                                  "Morula", "Blastocyst", "Post-implantation"),
+                        n = c(6, #8, 8, 8, 
+                              10, 12, 4))
+
+
+cell_per_type <- tibble(Stage = c("Zygote", #"2-cell", "4-cell", "8-cell", 
+                                  "Morula", "Blastocyst", "Post-implantation"),
+                        n = c(10, #8, 8, 8, 
+                              10, 20, 4))
+
+D <- cowplot::plot_grid(grid.grabExpr(draw(
+  promoter_methylation_fig(GR = my_GR[1], 
+                           title = "Female",
+                           show_legend = FALSE,
+                           rowtitle_fs = 8,
+                           coltitle_fs = 10,
+                           CpG_n_fs = 2.5,
+                           nt_up = prom_region[1],
+                           nt_down = prom_region[2],
+                           sc_or_bulk = "single",
+                           genotype = c("X", "XX"),
+                           stage = c("PN-early", "PN-mid", "PN-late", "2-cell", #"4-cell", 
+                                     "8-cell", "Morula", "Blastocyst (Mixed)", 
+                                     "Blastocyst (ICM)", "Heart", "Villus"),    
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE, # otherwise not enough samples
+                           rm_cell_with_only_missing_values = TRUE,
+                           cell_per_type = cell_per_type,
+                           clustRow = FALSE,
+                           h_width = 4,
+                           h_height =5,
+                           fs = 8)),  labels = c('A')))
+
+E <- cowplot::plot_grid(grid.grabExpr(draw(
+  promoter_methylation_fig(GR = my_GR[1], 
+                           title = "Male",
+                           rowtitle_fs = 8,
+                           coltitle_fs = 10,
+                          CpG_n_fs = 2.5,
+                           nt_up = prom_region[1],
+                           nt_down = prom_region[2],
+                           sc_or_bulk = "single",
+                           genotype = c("Y", "XY"),
+                           stage = c("PN-early", "PN-mid", "PN-late", "2-cell", "4-cell", 
+                                     "8-cell", 
+                                     "Morula", "Blastocyst (Mixed)", "Blastocyst (ICM)", "Heart", "Villus"),       
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE, # otherwise not enough samples
+                           rm_cell_with_only_missing_values = TRUE,
+                           cell_per_type = cell_per_type,
+                           clustRow = FALSE,
+                           h_width = 4,
+                           h_height =5,
+                           fs = 8)),  labels = c('B')))
+
+figB<- cowplot::plot_grid(D,E, 
+                   # rel_widths = c(2,1),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 1,
+                   align = "h")
+
+# pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_embryos.pdf"))#, height = 3, width = 3)
+# figB
+# dev.off()
+
+
+figC <- cowplot::plot_grid(figA, figB,
+                    rel_heights = c(1,1.6),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 2,
+                   align = "h",
+                   labels = my_gene)
+
+
+pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_embryos.pdf"), height = 3.5, width = 4.5)
+figC
+dev.off()
+
+figC
+```
+
+
+
+
+
+
+
+# MAGEB6 Figures
+
+
+```{r}
+my_gene <- "MAGEB6"
+my_GR <- all_promoter_regions_hg19[all_promoter_regions_hg19$external_gene_name == my_gene,]
+
+promoter_methylation_by_GR(GR = my_GR[1], 
+                           nt_up = 1000,
+                           nt_down = 500,
+                           sc_or_bulk = NULL,
+                           #genotype = "XX",
+                           #stage = "MII Oocyte",
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE,
+                           rm_cell_with_only_missing_values = TRUE,
+                           clustRow = FALSE,
+                           fs = 2)
+```
+
+Show Promoter region -/- 1000 pb around TSS
+
+```{r}
+prom_region <- c(1000, 1000)
+
+my_GR <- all_promoter_regions_hg19[all_promoter_regions_hg19$external_gene_name == my_gene,]
+gene <- my_GR$external_gene_name
+
+cell_per_type <- tibble(Stage = c("MII Oocyte", "Sperm"),
+                        n = c(10, 10))
+
+
+A <- cowplot::plot_grid(grid.grabExpr(
+  draw(promoter_methylation_fig(GR = my_GR[1], 
+            title = "Oocytes",
+            show_legend = FALSE,
+            rowtitle_fs = 0,
+            CpG_n_fs = 2.5,
+            nt_up = prom_region[1],
+            nt_down = prom_region[2],
+            sc_or_bulk = NULL,
+            genotype = c("X", "XX"),
+            stage = c("MII Oocyte") ,
+            #split_by = "individual",
+            split_by = "Stage",
+            rm_low_quality = FALSE,
+            rm_cell_with_only_missing_values = TRUE,
+            cell_per_type = cell_per_type,
+            clustRow = FALSE,
+            h_width = 4,
+            h_height = 2,
+            fs = 0)),  labels = c('A')))
+
+B <- cowplot::plot_grid(grid.grabExpr(
+  draw(promoter_methylation_fig(GR = my_GR[1], 
+            title = "Sperm",
+            show_legend = FALSE,
+            rowtitle_fs = 0,
+             CpG_n_fs = 2.5,
+             nt_up = prom_region[1],
+            nt_down = prom_region[2],
+            sc_or_bulk = NULL,
+            genotype = c("X", "XX"),
+            stage = c("Sperm") ,
+            #split_by = "individual",
+            split_by = "Stage",
+            rm_low_quality = FALSE,
+            rm_cell_with_only_missing_values = TRUE,
+            cell_per_type = cell_per_type,
+            clustRow = FALSE,
+            h_width = 4,
+            h_height = 2,
+            fs = 0)),  labels = c('A')))
+
+figA <- cowplot::plot_grid(A, B, 
+                   # rel_widths = c(2,1),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 2,
+                   align = "h")
+
+# pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_Oocytes_Sperm.pdf"))#, height = 3, width =4)
+# figA
+# dev.off()
+
+
+# Show the same number of cells in male and female embryos
+# Define the number of cells per stage manually
+cell_per_type <- tibble(Stage = c("Zygote", #"2-cell", "4-cell", "8-cell", 
+                                  "Morula", "Blastocyst", "Post-implantation"),
+                        n = c(6, #8, 8, 8, 
+                              10, 12, 4))
+
+
+cell_per_type <- tibble(Stage = c("Zygote", #"2-cell", "4-cell", "8-cell", 
+                                  "Morula", "Blastocyst", "Post-implantation"),
+                        n = c(10, #8, 8, 8, 
+                              10, 20, 4))
+
+D <- cowplot::plot_grid(grid.grabExpr(draw(
+  promoter_methylation_fig(GR = my_GR[1], 
+                           title = "Female",
+                           show_legend = FALSE,
+                           rowtitle_fs = 8,
+                           coltitle_fs = 10,
+                           CpG_n_fs = 2.5,
+                           nt_up = prom_region[1],
+                           nt_down = prom_region[2],
+                           sc_or_bulk = "single",
+                           genotype = c("X", "XX"),
+                           stage = c("PN-early", "PN-mid", "PN-late", "2-cell", #"4-cell", 
+                                     "8-cell", "Morula", "Blastocyst (Mixed)", 
+                                     "Blastocyst (ICM)", "Heart", "Villus"),    
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE, # otherwise not enough samples
+                           rm_cell_with_only_missing_values = TRUE,
+                           cell_per_type = cell_per_type,
+                           clustRow = FALSE,
+                           h_width = 4,
+                           h_height =5,
+                           fs = 8)),  labels = c('A')))
+
+E <- cowplot::plot_grid(grid.grabExpr(draw(
+  promoter_methylation_fig(GR = my_GR[1], 
+                           title = "Male",
+                           rowtitle_fs = 8,
+                           coltitle_fs = 10,
+                          CpG_n_fs = 2.5,
+                           nt_up = prom_region[1],
+                           nt_down = prom_region[2],
+                           sc_or_bulk = "single",
+                           genotype = c("Y", "XY"),
+                           stage = c("PN-early", "PN-mid", "PN-late", "2-cell", "4-cell", 
+                                     "8-cell", 
+                                     "Morula", "Blastocyst (Mixed)", "Blastocyst (ICM)", "Heart", "Villus"),       
+                           #split_by = "individual",
+                           split_by = "Stage",
+                           rm_low_quality = FALSE, # otherwise not enough samples
+                           rm_cell_with_only_missing_values = TRUE,
+                           cell_per_type = cell_per_type,
+                           clustRow = FALSE,
+                           h_width = 4,
+                           h_height =5,
+                           fs = 8)),  labels = c('B')))
+
+figB<- cowplot::plot_grid(D,E, 
+                   # rel_widths = c(2,1),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 1,
+                   align = "h")
+
+# pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_embryos.pdf"))#, height = 3, width = 3)
+# figB
+# dev.off()
+
+
+figC <- cowplot::plot_grid(figA, figB,
+                    rel_heights = c(1,1.6),
+                   # scale = c(1, 0.8),
+                   # label_size = 10, 
+                   nrow = 2,
+                   align = "h",
+                   labels = my_gene)
+
+
+pdf(file = paste0("../figs/Fig8C_", gene, "_Methylation_embryos.pdf"), height = 3.5, width = 4.5)
+figC
+dev.off()
+
+figC
+```
+
+
+
+
+
+
+
+
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+

@@ -1,0 +1,830 @@
+---
+title: "CT genes in tumors"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: false
+---
+
+
+
+```{r, echo = FALSE, Results = 'asis'}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+
+
+```{r}
+library("tidyverse")
+library("CTexploreR")
+library("ComplexHeatmap")
+library("circlize")
+library("SummarizedExperiment")
+```
+
+# 
+
+```{r}
+load("~/cluster/Packages/CTdata/eh_data/all_genes.rda")
+
+CT_genes_all <- all_genes
+
+
+CT_genes_types_all <- all_genes %>% 
+  dplyr::rename(gene = external_gene_name) %>% 
+  mutate(Regulation = case_when(regulated_by_methylation ~ "Methylation",
+                                !regulated_by_methylation ~ "Not methylation")) %>%
+  mutate(Chr = case_when(X_linked ~ "X-linked",
+                         !X_linked ~ "not X")) %>% 
+  mutate(chr_met = case_when(regulated_by_methylation & X_linked ~ "X_met",
+                             !regulated_by_methylation & X_linked ~ "X_not_met",
+                             regulated_by_methylation & !X_linked ~ "not_X_met",
+                             !regulated_by_methylation & !X_linked ~ "not_X_not_met")) %>% 
+  mutate(GTEX_specificity = case_when(GTEX_category == "testis_specific" ~ "Testis specific",
+                                        GTEX_category == "testis_preferential" ~ "Testis preferential",
+                                        GTEX_category == "lowly_expressed" ~ "Undetectable in GTEX")) %>% 
+  mutate(GTEX_specificity = factor(GTEX_specificity, 
+                                     levels = c("Testis specific",  "Undetectable in GTEX", "Testis preferential"))) %>% 
+  mutate(testis_specificity = case_when(testis_specificity == "testis_specific" ~ "Testis specific",
+                                        testis_specificity == "testis_preferential" ~ "Testis preferential")) %>%
+  mutate(testis_specificity = factor(testis_specificity, levels = c("Testis specific", "Testis preferential"))) %>% 
+  mutate(chr_met = factor(chr_met, 
+                          levels = c("X_met", "not_X_met", "X_not_met", "not_X_not_met"))) %>% 
+  mutate(met_3_groups = case_when(regulated_by_methylation & X_linked ~ "Methylation X-linked",
+                                   regulated_by_methylation & !X_linked ~ "Methylation not X-linked",
+                             !regulated_by_methylation ~ "Not Methylation")) %>% 
+  mutate(met_3_groups = factor(met_3_groups, 
+                          levels = c("Methylation X-linked", "Methylation not X-linked", "Not Methylation"))) 
+
+CT_genes <- CT_genes_all %>%
+  filter(CT_gene_type == "CT_gene")
+CT_genes_types <- CT_genes_types_all %>% 
+  filter(CT_gene_type == "CT_gene")
+
+CTP_genes <- CT_genes_all %>%
+  filter(CT_gene_type == "CTP_gene")
+CTP_genes_types <- CT_genes_types_all %>% 
+  filter(CT_gene_type == "CTP_gene")
+```
+
+
+```{r}
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 4),
+  title_gp = gpar(col = "black", fontsize = 5, fontface = "bold"),
+  simple_anno_size = unit(0.2, "cm"),
+  row_names_gp = gpar(fontsize = 3),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.2),
+  grid_width = unit(0.2, "cm"),
+  grid_height = unit(0.05, "cm"),
+  legend_height = unit(1, "cm"),
+  use_raster = TRUE,
+               raster_device = "CairoPNG",
+               raster_quality = 10)
+
+legend_colors <- c("#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598",
+"#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F",
+"#9E0142")
+
+TCGA_colors <- c(
+"BRCA" = "midnightblue", "COAD" = "darkorchid2",
+"ESCA" = "gold", "HNSC" = "deeppink2",
+"LUAD" = "seagreen", "LUSC" = "seagreen3",
+"SKCM" = "red3")
+
+CCLE_colors <- c(
+"Lung" = "seagreen3", "Skin" = "red3",
+"Bile_Duct" = "mediumpurple1", "Bladder" = "mistyrose2",
+"Colorectal" = "plum", "Lymphoma" = "steelblue1",
+"Uterine" = "darkorange4", "Myeloma" = "turquoise3",
+"Kidney" = "thistle4",
+"Pancreatic" = "darkmagenta", "Brain" = "palegreen2",
+"Gastric" = "wheat3", "Breast" = "midnightblue",
+"Bone" = "sienna1", "Head_and_Neck" = "deeppink2",
+"Ovarian" = "tan3", "Sarcoma" = "lightcoral",
+"Leukemia" = "steelblue4", "Esophageal" = "khaki",
+"Neuroblastoma" = "olivedrab1")
+
+DAC_colors <- c(
+"B2-1" = "olivedrab2", "HCT116" = "lightcoral",
+"HEK293T" = "seagreen3", "HMLER" = "mediumpurple1",
+"IMR5-75" = "deeppink2", "NCH1681" = "steelblue2",
+"NCH612" = "red3", "TS603" = "darkmagenta")
+
+DAC_treatment_colors <- c("CTL" = "royalblue4", "5-aza" = "maroon3")
+
+Regulation_colors <- c("Methylation" = "indianred2",
+"Not methylation"= "cyan4")
+
+MethDep_colors <- c("MethDep" = "indianred2",
+"Non-MethDep"= "cyan4")
+
+chr_met_colors = c("X_met" = "mediumorchid2",
+"X_not_met" = "mediumseagreen",
+"not_X_met"= "darkorange1",
+"not_X_not_met" = "dodgerblue1")
+
+Chr_colors = c("X-linked" = "deeppink3", "not X" = "lightgreen")
+Chr_colors_with_Y = c("X-linked" = "deeppink3", "Autosome" = "lightgreen", "Y-linked" = "black")
+
+GTEX_specificity_colors = c("Testis specific" = "green",
+                              "Testis preferential" = "purple",
+                              "Undetectable in GTEX" = "gray")
+
+Testis_specificity_colors = c("Testis specific" = "mediumpurple2",
+"Testis preferential" = "goldenrod1",
+"Undetectable in GTEX" = "gray")
+
+# Testis_specificity_colors = c("Testis specific" = "green",
+#                               "Testis preferential" = "purple")
+
+testis_colors <- c(
+"SSC" = "floralwhite", "Spermatogonia" = "moccasin",
+"Early_spermatocyte" = "gold",
+"Late_spermatocyte" = "orange",
+"Round_spermatid" = "red2",
+"Elongated_spermatid" = "darkred", "Sperm" = "purple",
+"Sertoli" = "gray",
+"Leydig" = "cadetblue2", "Myoid" = "springgreen3",
+"Macrophage" = "gray10",
+"Endothelial" = "steelblue")
+
+Fetal_cell_colors = c( "F_PGC" = "pink",
+"F_GC" = "pink3",
+"F_oogonia" = "palevioletred3",
+"F_oocyte" = "mediumorchid4",
+"M_PGC" = "lightblue1",
+"M_GC" = "steelblue3",
+"M_pre_spermatogonia" = "royalblue3")
+
+oocytes_colors <- c("Growing oocytes" = "mediumpurple1",
+# "Fully grown oocytes" ="lightgreen",
+# "Metaphase I" = "mediumvioletred",
+"Metaphase II" = "mediumpurple4")
+
+sex_colors <- c("F" = "palevioletred1", "M"= "skyblue1")
+
+stage_colors <- c( "pre-meiotic" = "peachpuff",
+"meiotic"= "lightsalmon",
+"post-meiotic" = "maroon4",
+"somatic" = "gray")
+
+CT_genes <- CT_genes %>% filter(CT_gene_type == "CT_gene")
+```
+
+
+
+# Activation frequencies / mean expression
+
+
+
+```{r}
+####################################################################
+### TCGA
+####################################################################
+load("~/cluster/Packages/CTdata/eh_data/TCGA_TPM.rda")
+TCGA <- TCGA_TPM
+TCGA <- TCGA[, TCGA$shortLetterCode != "NT"]
+TCGA_Subtype <- c("TCGA-SKCM", "TCGA-LUAD", "TCGA-HNSC")
+TCGA <- TCGA[, TCGA$project_id %in% TCGA_Subtype]
+
+tumors <- unique(TCGA$project_id)
+
+thr_pos <- 1
+
+prop_of_pos_tum <- as_tibble(assay(TCGA), rownames = "ensembl_gene_id") %>% 
+  filter(ensembl_gene_id %in% CT_genes$ensembl_gene_id) %>% 
+  pivot_longer(names_to = "barcode", values_to = "TPM", -ensembl_gene_id) %>% 
+  mutate(activated = ifelse(TPM >= thr_pos, "n_pos", "n_neg")) %>% 
+  left_join(as_tibble(colData(TCGA), rownames = "barcode") %>% 
+              dplyr::select(barcode, project_id)) %>% 
+  group_by(ensembl_gene_id, activated, project_id) %>% 
+  dplyr::summarize(n = n()) %>% 
+  pivot_wider(names_from = activated, values_from = n) %>% 
+  mutate(proportion_of_positive_tum = n_pos * 100 / (n_pos + n_neg)) 
+
+mean_in_pos <- as_tibble(assay(TCGA), rownames = "ensembl_gene_id") %>% 
+  filter(ensembl_gene_id %in% CT_genes$ensembl_gene_id) %>%  
+  pivot_longer(names_to = "barcode", values_to = "TPM", -ensembl_gene_id)   %>% 
+  mutate(activated = ifelse(TPM >= thr_pos, "activated", "not_activated")) %>% 
+  filter(activated == "activated") %>% 
+  left_join(as_tibble(colData(TCGA), rownames = "barcode") %>% 
+              dplyr::select(barcode, project_id)) %>% 
+  group_by(ensembl_gene_id, project_id) %>% 
+  summarise(mean_log = log1p(mean(TPM)),
+            mean_TPM = mean(TPM)) 
+
+mean_and_prop_TCGA <- prop_of_pos_tum %>% 
+  left_join(mean_in_pos) %>% 
+  right_join(CT_genes) %>% 
+  dplyr::select(ensembl_gene_id, project_id, mean_log, proportion_of_positive_tum, regulated_by_methylation, X_linked) %>% 
+  mutate(source = "TCGA tumor samples")
+
+
+####################################################################
+### CCLE data
+####################################################################
+load("~/cluster/Packages/CTdata/eh_data/CCLE_data.rda")
+CCLE <- CCLE_data
+squamous_cell_carcinomas <- unique(grep("Squamous Cell Carcinoma", 
+                                        x = CCLE$Subtype, value = TRUE))
+
+CCLE_Subtype <- c("Melanoma", 
+                 "Non-Small Cell Lung Cancer (NSCLC), Adenocarcinoma", 
+                 squamous_cell_carcinomas)
+
+CCLE <- CCLE[, !is.na(CCLE$Subtype) & CCLE$Subtype %in% CCLE_Subtype]
+CCLE$type <- NA
+CCLE$type[CCLE$Subtype == "Melanoma" & CCLE$primary_disease == "Skin Cancer"] <- "CCLE-SKCM"
+CCLE$type[CCLE$Subtype == "Non-Small Cell Lung Cancer (NSCLC), Adenocarcinoma" & 
+            CCLE$primary_disease == "Lung Cancer"] <- "CCLE-LUAD"
+CCLE$type[CCLE$Subtype == "Non-Small Cell Lung Cancer (NSCLC), Squamous Cell Carcinoma" & 
+            CCLE$primary_disease == "Lung Cancer"] <- "CCLE-LUSC"
+CCLE$type[CCLE$Subtype %in% squamous_cell_carcinomas & 
+            CCLE$primary_disease == "Head and Neck Cancer"] <- "CCLE-HNSC"
+
+CCLE <- CCLE[, !is.na(CCLE$type) & CCLE$type != "CCLE-LUSC"]
+CCLE$type <- factor(CCLE$type, levels = c("CCLE-SKCM", 
+                                          "CCLE-LUAD", 
+                                          #"CCLE-LUSC", 
+                                          "CCLE-HNSC"))
+
+prop_of_pos_tum <- as_tibble(assay(CCLE), rownames = "ensembl_gene_id") %>% 
+    filter(ensembl_gene_id %in% CT_genes$ensembl_gene_id) %>%  
+    pivot_longer(names_to = "cell", values_to = "TPM", -ensembl_gene_id) %>% 
+    mutate(activated = ifelse(TPM >= thr_pos, "n_pos", "n_neg")) %>% 
+    left_join(as_tibble(colData(CCLE), rownames = "cell") %>% 
+                dplyr::select(cell, Subtype, lineage_subtype, type)) %>% 
+    group_by(ensembl_gene_id, activated, type) %>% 
+    dplyr::summarize(n = n()) %>% 
+    pivot_wider(names_from = activated, values_from = n, values_fill = 0) %>% 
+    mutate(proportion_of_positive_tum = n_pos * 100 / (n_pos + n_neg))
+  
+mean_in_pos <- as_tibble(assay(CCLE), rownames = "ensembl_gene_id") %>% 
+  filter(ensembl_gene_id %in% CT_genes$ensembl_gene_id) %>%   
+  pivot_longer(names_to = "cell", values_to = "TPM", -ensembl_gene_id)  %>% 
+  mutate(activated = ifelse(TPM >= thr_pos, "activated", "not_activated")) %>% 
+  filter(activated == "activated") %>% 
+  left_join(as_tibble(colData(CCLE), rownames = "cell") %>% 
+              dplyr::select(cell, Subtype, type)) %>% 
+  group_by(ensembl_gene_id, type) %>% 
+  summarise(mean_log = log1p(mean(TPM)),
+            mean_TPM = mean(TPM))
+
+mean_and_prop_CCLE <- prop_of_pos_tum %>% 
+  left_join(mean_in_pos) %>% 
+  right_join(CT_genes) %>% 
+  dplyr::select(ensembl_gene_id, type, mean_log, proportion_of_positive_tum, regulated_by_methylation, X_linked) %>% 
+  mutate(source = "CCLE tumor cell lines") 
+
+
+####################################################################
+### combine TCGA and CCLE data
+####################################################################
+
+bilan <- rbind(mean_and_prop_CCLE, 
+               mean_and_prop_TCGA %>% 
+                 dplyr::rename(type = project_id))
+
+bilan <- bilan %>% 
+  mutate(type = factor(type, levels = c("CCLE-SKCM", 
+                                        "CCLE-LUAD", 
+                                        #"CCLE-LUSC", 
+                                        "CCLE-HNSC",
+                                        "TCGA-SKCM", 
+                                        "TCGA-LUAD", 
+                                        #"TCGA-LUSC", 
+                                        "TCGA-HNSC"))) %>% 
+  dplyr::rename("Positive tumors (%)" = proportion_of_positive_tum,
+                'Mean expression\nin positive tumors' = mean_log)
+
+library(ggh4x)
+
+strip <- strip_themed(background_x = elem_list_rect(fill = c(rep("gray95", 3), rep("gray80", 3))))
+
+fig <- bilan %>% 
+  mutate(type = gsub("-", x = type, replace = "\n")) %>% 
+  mutate(type = factor(type, 
+                       levels =  c("CCLE\nSKCM", 
+                                   "CCLE\nLUAD", 
+                                    #"CCLE\nLUSC", 
+                                   "CCLE\nHNSC",
+                                   "TCGA\nSKCM", 
+                                   "TCGA\nLUAD", 
+                                    #"TCGA\nLUSC", 
+                                   "TCGA\nHNSC" ))) %>% 
+  mutate("CG gene" = case_when(regulated_by_methylation  ~ "MethDep",
+                               !regulated_by_methylation ~ "Non-MethDep")) %>% 
+  pivot_longer(names_to = "metric", values_to = "value", 
+               -c(ensembl_gene_id,  `CG gene`, type, regulated_by_methylation, X_linked, source)) %>% 
+  filter(!is.na(`CG gene`)) %>% 
+  ggplot(aes(x = `CG gene`, y = value, color = `CG gene`)) +
+  geom_jitter(size = 0.2, alpha = .8) +
+  scale_colour_manual(values = MethDep_colors) +
+  geom_boxplot(alpha = 0, color = "black", linewidth = 0.4) +
+  facet_grid2(metric ~ type, scales = "free", switch = "y", strip = strip) +
+  xlab('') +
+  theme_bw() +
+  theme(#aspect.ratio = 0.8,
+        legend.position = "right",
+        axis.position = "right",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        axis.text.x = element_text(size = 0),
+        axis.text.y = element_text(size = 10),
+        axis.ticks.x = element_line(size = 0),
+        #axis.ticks.y = element_line(size = 0),
+        axis.title = element_text(size = 0),
+        strip.text.x = element_text(size = 10),
+        strip.text.y = element_text(size = 12),
+        strip.background.y =  element_blank()) +
+  scale_y_continuous(position = "right") 
+
+pdf(file = "../figs/Fig5B_CG_in_CCLE_TCGA.pdf", width = 6, height = 4)
+fig
+dev.off()
+
+fig
+```
+
+## t-tests
+
+```{r}
+tumors <- levels(bilan$type)
+tum <- tumors[1]
+prop_of_positive_tum_pval <- t.test(bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Positive tumors (%)") %>% 
+                filter(regulated_by_methylation) %>% 
+                pull(value),
+              bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Positive tumors (%)") %>% 
+                filter(regulated_by_methylation) %>% 
+                pull(value), alternative = "greater")$p.value
+
+
+
+mean_log_pval = t.test(bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Mean expression\nin positive tumors") %>% 
+                filter(regulated_by_methylation) %>% 
+                pull(value),
+              bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Mean expression\nin positive tumors") %>% 
+                filter(!regulated_by_methylation) %>% 
+                pull(value), alternative = "greater")$p.value
+
+t_tests <- tibble(Tum = tum, prop_of_positive_tum_pval = prop_of_positive_tum_pval, mean_log_pval = mean_log_pval)
+
+for (tum in tumors[-1]){
+  
+  tmp1 = t.test(bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Positive tumors (%)") %>% 
+                filter(regulated_by_methylation) %>% 
+                pull(value),
+              bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Positive tumors (%)") %>% 
+                filter(!regulated_by_methylation) %>% 
+                pull(value), alternative = "greater")$p.value
+    
+  tmp2 = t.test(bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Mean expression\nin positive tumors") %>% 
+                filter(regulated_by_methylation) %>% 
+                pull(value),
+              bilan %>% 
+                pivot_longer(names_to = "metric", values_to = "value", 
+                             -c(ensembl_gene_id,  type, regulated_by_methylation, X_linked, source)) %>% 
+                filter(!is.na(regulated_by_methylation)) %>% 
+                filter(type == tum, metric == "Mean expression\nin positive tumors") %>% 
+                filter(!regulated_by_methylation) %>% 
+                pull(value), alternative = "greater")$p.value
+  
+  tmp <- tibble(Tum = tum, prop_of_positive_tum_pval = tmp1,  mean_log_pval = tmp2)
+  t_tests <- rbind(t_tests, tmp)
+}
+
+t_tests$prop_of_positive_tum_padjusted <- p.adjust(t_tests$prop_of_positive_tum_pval, method = "BH")
+t_tests$Mean_expression_padjusted <- p.adjust(t_tests$mean_log_pval, method = "BH")
+DT::datatable(t_tests %>% dplyr::select(Tum, prop_of_positive_tum_padjusted, Mean_expression_padjusted))
+```
+
+=> Always significant (except the `proportion of positive tumors` in TCGA-LUAD)
+
+```{r}
+strip <- strip_themed(background_x = elem_list_rect(fill = c("gray95", "gray80")))
+
+bilan_all_types <- bilan %>% 
+         filter(!is.na(regulated_by_methylation)) %>% 
+         mutate("CG gene" = case_when(regulated_by_methylation ~ "MethDep",
+                               !regulated_by_methylation ~ "Non-MethDep")) %>% 
+       filter(!is.na(regulated_by_methylation)) %>% 
+  group_by(ensembl_gene_id, source) %>% 
+  summarize(`Mean expression\nin positive tumors` = mean(`Mean expression\nin positive tumors`, na.rm = TRUE),
+            `Positive tumors (%)` = mean(`Positive tumors (%)`, na.rm = TRUE)) %>% 
+  left_join(bilan %>% filter(!is.na(regulated_by_methylation)) %>% 
+         mutate("CG gene" = case_when(regulated_by_methylation ~ "MethDep",
+                               !regulated_by_methylation ~ "Non-MethDep")) %>% 
+           dplyr::select(ensembl_gene_id, "CG gene", "X_linked") %>% unique())
+```
+
+```{r}
+
+selected_genes_in_TCGA <- c("MAGEA3", "MAGEA6", "MAGEA4", "MAGEA1", "MAGEA12", 
+                            "MAGEC2", "CTAG2", "CBY2", "PAGE2", "PAGE5, GAGE2A", 
+                            "SPANXB1", "PAGE1", "LINC01518", "BRDT", #"CT45A10", 
+                            "SSX1", "MAGEC2", "MAGEB2", "MAGEA10")
+
+selected_genes_in_CCLE <- c("MAGEA3", "MAGEA6", "MAGEA4", #"MAGEA1",
+                            "TRIML2", "LINC02864", 
+                            "MAGEA12",
+                            "MAGEA2", "SPANXB1","LIN1518",
+                            "XAGE1A", "XAGE1B", "CTAG2", "CT45A1", "GAGE2A", 
+                            "PAGE2", "DSCR8", "MAGEB2", #"VCY", "SSX2B", "TUBA3C",
+                            "GAGE12E") 
+
+
+fig <- ggplot(bilan_all_types %>% left_join(CT_genes %>% 
+                                              dplyr::select(ensembl_gene_id, external_gene_name) %>% 
+                                              dplyr::rename(gene = external_gene_name)) %>% 
+                mutate(source = factor(source, 
+                       levels =  c("TCGA tumor samples", "CCLE tumor cell lines"))) %>% 
+         mutate(Location = case_when(X_linked ~ "X-linked",
+                                       !X_linked ~ "Not X")),
+         aes(x = `Mean expression\nin positive tumors`, y = `Positive tumors (%)`,
+             label = gene, colour = `CG gene`, shape = Location)) +
+  geom_point(size = 2) +
+  scale_colour_manual(values = MethDep_colors) +
+  facet_wrap2(~ source, ncol = 2, strip = strip) +
+  ggrepel::geom_text_repel(
+    data = bilan_all_types %>% 
+      left_join(CT_genes %>% 
+                  dplyr::select(ensembl_gene_id, external_gene_name) %>% 
+                  dplyr::rename(gene = external_gene_name)) %>% 
+      mutate(Location = case_when(X_linked ~ "X-linked",
+                                  !X_linked ~ "Not X")) %>%
+      filter(source == "TCGA tumor samples" & gene %in% selected_genes_in_TCGA) ,
+    aes(x = `Mean expression\nin positive tumors`, y = `Positive tumors (%)`,
+        label = gene), size = 2.5, color = "black", min.segment.length = 2,
+    max.overlaps = 30) + #, direction = "x") +
+  ggrepel::geom_text_repel(
+    data = bilan_all_types %>% 
+      left_join(CT_genes %>% 
+                  dplyr::select(ensembl_gene_id, external_gene_name) %>% 
+                  dplyr::rename(gene = external_gene_name)) %>% 
+      mutate(Location = case_when(X_linked ~ "X-linked",
+                                  !X_linked ~ "Not X")) %>%
+      filter(source == "CCLE tumor cell lines" & gene %in% selected_genes_in_CCLE) ,
+    aes(x = `Mean expression\nin positive tumors`, y = `Positive tumors (%)`,
+        label = gene), size = 2.5, color = "black", min.segment.length = 2,
+    max.overlaps = 30) + #, direction = "x") +
+  xlab("Mean expression log(TPM + 1) in positive tumors") +
+  ylab("Proportion of positive tumors (%)") +
+  
+  theme_bw() +
+  theme(legend.position = "right",
+        #aspect.ratio = 0.8,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        #legend.key.size = unit(0.3, 'cm'),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        axis.ticks = element_line(size = 0.1),
+        axis.title = element_text(size = 12),
+        strip.text = element_text(size = 12)) 
+
+pdf(file = "../figs/Fig5C_CG_in_CCLE_TCGA_by_chr.pdf", width = 7, height = 3)
+fig
+dev.off()
+
+fig
+
+
+CCLE_data <- CCLE
+TCGA_data <- TCGA
+```
+
+
+
+# CT-met cluster together 
+
+
+
+
+```{r}
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 6),
+  title_gp = gpar(col = "black", fontsize = 6),
+  simple_anno_size = unit(0.8, "cm"),
+  border_gp = gpar(lwd = 0.01),
+  row_names_gp = gpar(fontsize = 1),
+  annotation_name_side = "none")
+
+
+tum_heatmap <- function(genes = NULL,
+                               CCLE_Subtype = c("CCLE-SKCM", "CCLE-LUAD", 
+                                            #"CCLE-LUSC",  
+                                            "CCLE-HNSC"),
+                               TCGA_Subtype = c("TCGA-SKCM", "TCGA-LUAD", 
+                                            #"TCGA-LUSC",  
+                                            "TCGA-HNSC"),
+                               h_width = 5,
+                               h_height = 10,
+                               downsample_to_n = 450,
+                               fontsize = 4, 
+                               clust_method = "ward.D",
+                               split_rows_by = "regulation", 
+                               show_annotation_legend = TRUE,
+                               clustRow = FALSE,
+                               clustCol = TRUE){
+  # CCLE data
+  ## downsample tumors to have the same number of tumors in each type
+  CCLE <- CCLE_data[, CCLE_data$type == CCLE_Subtype[1]]
+  CCLE <- CCLE[, 1:min(ncol(CCLE), downsample_to_n)]
+  
+  for (tum in CCLE_Subtype[-1]){
+    tmp <- CCLE_data[, CCLE_data$type == tum]
+    tmp <- tmp[, 1:min(ncol(tmp), downsample_to_n)]
+    CCLE <- cbind(CCLE, tmp)
+  }
+  
+  
+  CCLE$type <- gsub("-", x = CCLE$type, replacement = "\n")
+  CCLE$type <- factor(CCLE$type, levels = c("CCLE\nSKCM", "CCLE\nLUAD", #"CCLE\nLUSC", 
+                                            "CCLE\nHNSC"))
+  
+  colData(CCLE) <- colData(CCLE)[, c(14, 30)]
+  
+  
+  # TCGA data
+  TCGA <- TCGA_data
+  
+  ## downsample tumors to have the same number of tumors in each type
+  TCGA <- TCGA_data[, TCGA_data$project_id == TCGA_Subtype[1]]
+  TCGA <- TCGA[, 1:min(ncol(TCGA), downsample_to_n)]
+  
+  for (tum in TCGA_Subtype[-1]){
+    tmp <- TCGA_data[, TCGA_data$project_id == tum]
+    tmp <- tmp[, 1:min(ncol(tmp), downsample_to_n)]
+    TCGA <- cbind(TCGA, tmp)
+  }
+  
+  TCGA$type <- TCGA$project_id
+  TCGA$type <- gsub("-", x = TCGA$type, replacement = "\n")
+  TCGA$type <- factor(TCGA$type, levels = c("TCGA\nSKCM", "TCGA\nLUAD", #"TCGA\nLUSC", 
+                                            "TCGA\nHNSC"))
+  
+  #names(colData(TCGA))
+  colData(TCGA) <- colData(TCGA)[, c(56, 66)]
+  #TCGA$project_id <- gsub(pattern = "TCGA-", x = TCGA$project_id, replacement = '')
+  my_genes <- genes[genes %in% c(rowData(CCLE)$external_gene_name, rowData(TCGA)$external_gene_name)]
+  my_ensembl <- CT_genes %>% filter(external_gene_name %in% my_genes) %>% pull(ensembl_gene_id)
+  
+  print(length(my_genes))
+  
+  names(colData(TCGA)) <- c("Subtype", "type")
+  tum_SE <- cbind(CCLE[my_ensembl,], TCGA[my_ensembl,])
+  
+
+ 
+  df_col <- tibble(sample = colnames(tum_SE), type = tum_SE$type)
+  
+  df_col <- df_col %>% arrange(type)
+  
+  tum_SE <- tum_SE[, df_col$sample]
+  split_by <- tum_SE$type
+  
+  tum_col <- c(rep("gray95", 4), rep("gray80", 4))
+  names(tum_col) <- levels(tum_SE$type)
+  
+  ## Use gene names instead of ENSEMBL IDs
+  mat <- SummarizedExperiment::assay(tum_SE)
+  rownames(mat) <- rowData(tum_SE)$external_gene_name
+  mat <- log1p(mat)
+  
+  gene_type <- CT_genes %>% 
+    filter(external_gene_name %in% genes) %>% 
+    mutate(gene = factor(external_gene_name, levels = genes)) %>% 
+    mutate(Regulation = ifelse(regulated_by_methylation, "MethDep", "Non\nMethDep")) %>% 
+     mutate(Regulation = factor(Regulation, levels = c("MethDep", "Non\nMethDep"))) %>% 
+    arrange(gene)
+  
+ if (clustRow) gene_type <- gene_type %>% arrange(Regulation)
+ rowSplit <- gene_type$Regulation
+  
+  
+  heatmap_colors <- colorRamp2(
+    seq(0, 5, length = 11),                 
+    legend_colors)
+  
+  Heatmap(mat[as.vector(gene_type$gene), ],
+          top_annotation = HeatmapAnnotation(
+            type = anno_block(gp = gpar(fill = c(rep("gray95", 3), rep("gray80", 3)), lwd = 0.2),
+                              height = unit(c(0.7), "cm"),
+                              labels = levels(df_col$type), 
+                              labels_gp = gpar(col = "black", fontsize = 8))),
+          left_annotation = rowAnnotation(
+            met = anno_block(gp = gpar(fill = MethDep_colors, lwd = 0.2),
+                             width = unit(c(0.8), "cm"),
+                             labels = c("MethDep", "Non\nMethDep"), 
+                             labels_gp = gpar(col = "white", fontsize = 10))),
+          name = "logTPM",
+          #column_title = paste0("CCLE tumor cell lines"),
+          #column_title_gp = gpar(fontsize = 7, face = "bold"),
+          clustering_method_rows = clust_method,
+          clustering_method_columns = clust_method,
+          column_split = split_by,
+          row_gap = unit(c(1), "mm"),
+          col = heatmap_colors,
+          cluster_rows = clustRow,
+          cluster_columns = clustCol,
+          cluster_column_slices = FALSE,
+          cluster_row_slices = FALSE,
+          show_row_names = FALSE,
+          show_column_names = FALSE,
+          show_row_dend = FALSE,
+          show_column_dend = FALSE,
+          column_names_gp = gpar(fontsize = 6),
+          column_names_centered = TRUE,
+          row_names_gp = gpar(fontsize = fontsize),
+          row_names_side = "left",
+          border = TRUE,
+          border_gp = gpar(lwd = 0.5),
+          column_names_side = c("top"),
+          column_names_rot = 90,
+          row_title_gp = gpar(fontsize = 0),
+          column_title_gp = gpar(fontsize = 0),
+          #top_annotation = column_ha_tumor,
+          #right_annotation = rAnnot,
+          #left_annotation = rAnnot,
+          row_split = rowSplit,
+          width = unit(h_width, "cm"),
+          height = unit(h_height, "cm"),
+          use_raster = TRUE,
+          raster_device = "CairoPNG",
+          raster_quality = 10,
+          heatmap_legend_param = legends_param,
+          show_heatmap_legend = TRUE)
+}
+```
+
+```{r}
+met_genes <- CT_genes %>% 
+  filter(regulated_by_methylation) %>% 
+  pull(external_gene_name)
+
+not_met_genes <- CT_genes %>% 
+  filter(!regulated_by_methylation) %>% 
+  pull(external_gene_name)
+
+h <- tum_heatmap(c(met_genes, not_met_genes), 
+                         downsample_to_n = 50, 
+                         h_width = 7,
+                         h_height = 6,
+                         fontsize = 0, 
+                   clust_method = "ward.D",
+                   clustRow = TRUE,
+                   #show_row_names = TRUE,
+                   show_annotation_legend = TRUE,
+                   split_rows_by = "regulation")
+h
+pdf(file = "../figs/Fig5A_CG_clustering_in_tumors.pdf")#, width = 7, height = 3)
+h
+dev.off()
+
+```
+
+# Activation score distribution
+
+
+- Activated when TPM >= 1
+
+- Activation score :
+
+    number of methDep gene activated / number of methDep gene
+    
+    number of Non-methDep gene activated / number of Non-methDep gene
+
+
+```{r}
+### in CCLE
+CCLE <- CCLE_data
+
+keep <- rowSums(assay(CCLE)) > 0
+CCLE <- CCLE[keep, ]
+
+met_genes <- CT_genes %>% 
+  filter(ensembl_gene_id %in% rownames(CCLE)) %>% 
+  filter(regulated_by_methylation) %>% 
+  pull(ensembl_gene_id)
+
+not_met_genes <- CT_genes %>% 
+  filter(ensembl_gene_id %in% rownames(CCLE)) %>% 
+  filter(!regulated_by_methylation) %>% 
+  pull(ensembl_gene_id)
+
+CCLE <- CCLE[c(met_genes,not_met_genes), ]
+binary_mat_methDep <- assay(CCLE) >= 1
+methDep_score <- colSums(binary_mat_methDep) / length(met_genes)
+CCLE$methDep_score <- methDep_score
+
+binary_mat_NonMethDep <- assay(CCLE[not_met_genes,]) >= 1
+NonMethDep_score <- colSums(binary_mat_NonMethDep) / length(not_met_genes)
+CCLE$NonMethDep_score <- NonMethDep_score
+
+### in TCGA
+TCGA <- TCGA_data
+
+keep <- rowSums(assay(TCGA)) > 0
+TCGA <- TCGA[keep, ]
+
+met_genes <- CT_genes %>% 
+  filter(ensembl_gene_id %in% rownames(TCGA)) %>% 
+  filter(regulated_by_methylation) %>% 
+  pull(ensembl_gene_id)
+
+not_met_genes <- CT_genes %>% 
+  filter(ensembl_gene_id %in% rownames(TCGA)) %>% 
+  filter(!regulated_by_methylation) %>% 
+  pull(ensembl_gene_id)
+TCGA <- TCGA[c(met_genes, not_met_genes), ]
+
+binary_mat_methDep <- assay(TCGA[met_genes,]) >= 1
+methDep_score <- colSums(binary_mat_methDep) / length(met_genes)
+TCGA$methDep_score <- methDep_score
+
+
+binary_mat_NonMethDep <- assay(TCGA[not_met_genes,]) >= 1
+NonMethDep_score <- colSums(binary_mat_NonMethDep) / length(not_met_genes)
+TCGA$NonMethDep_score <- NonMethDep_score
+
+
+bilan <- rbind(as_tibble(colData(CCLE)) %>%
+        mutate(source = "CCLE") %>%
+        dplyr::select(source, methDep_score, NonMethDep_score),
+      as_tibble(colData(TCGA)) %>%
+        mutate(source = "TCGA") %>%
+        dplyr::select(source, methDep_score, NonMethDep_score)) %>% 
+  pivot_longer(names_to = "methDependency", values_to = "score", -source) %>% 
+  mutate("methDependency" = ifelse(methDependency == "methDep_score", "MethDep", "Non-MethDep"))
+
+
+bilan <- bilan %>% 
+  mutate(group = case_when(score == 0 ~ "0",
+                           score >= 0 & score < 0.05 ~ "<5",
+                           score >= 0.05 & score < 0.10 ~ "5-10",
+                           score >= 0.10 & score < 0.15 ~ "10-15",
+                           score >= 0.15 & score < 0.20 ~ "15-20",
+                           score >= 0.20 ~ ">20")) %>% 
+  mutate(group = factor(group, levels = c("0", "<5", "5-10", "10-15","15-20", ">20")))
+strip <- strip_themed(background_x = elem_list_rect(fill = c("gray95","gray80")))
+fig <- bilan %>% 
+  group_by(source, methDependency, group) %>% 
+  summarize(n = n())  %>% #filter(methDependency == "MethDep") %>% 
+  ggplot(aes(x = group, y = n, group = methDependency, fill = methDependency)) +
+  geom_col(stat = "identity", width = 0.6, position = position_dodge(0.6))+
+  scale_fill_manual(values = MethDep_colors)+
+  xlab("Activation scores") +
+  ylab("Number of tumors") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        #aspect.ratio = 1, 
+        legend.position = c(0.65, 0.95),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        legend.text = element_text(size = 6),
+        legend.title = element_text(size = 0),
+        legend.key.size = unit(0.2, 'cm'),
+        legend.background = element_blank()) +
+  facet_wrap2(~source, ncol = 1, scales = "free_y", strip = strip)
+fig
+pdf(file = "../figs/Fig5D_ActivationScores.pdf", width = 3, height = 4)
+fig
+dev.off()
+```
+

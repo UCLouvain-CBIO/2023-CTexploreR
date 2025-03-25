@@ -1,0 +1,698 @@
+---
+title: "X-linked MethDep CG genes are more methylated in oocytes than in sperm"
+subtitle: "Figures 7E + 7F"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+
+```{r, echo = FALSE, Results = 'asis'}
+suppressPackageStartupMessages(library("dplyr"))
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+```{r, warning = FALSE}
+library("tidyverse")
+library("ComplexHeatmap")
+library("CTexploreR")
+library("circlize")
+library("SummarizedExperiment")
+library("SingleCellExperiment")
+library("DESeq2")
+```
+
+
+
+
+# 
+
+```{r}
+CT_genes_X_met <- CT_genes %>% 
+  filter(CT_gene_type == "CT_gene") %>% 
+  filter(X_linked, regulated_by_methylation) %>% 
+  pull(external_gene_name)
+
+gamete_colors <- c("MII oocytes" = "deeppink",
+               "Sperm"= "steelblue")
+
+MethDep_colors <- c("MethDep" = "indianred2",
+"Non-MethDep"= "cyan4")
+```
+
+
+scWGBS data from 
+
+[Single-cell DNA methylome sequencing of human preimplantation embryos. Nat Genet 50, 12–19 (2018). Zhu, P., Guo, H., Ren, Y. et al.](https://doi.org/10.1038/s41588-017-0007-6)
+
+# Oocytes vs Sperm
+
+## X-linked MethDep CT genes
+
+
+```{r}
+non_missing_values_thr <- 5
+```
+
+Kept genes with at least `r non_missing_values_thr` methylation value per cell type
+
+Removed Y-sperm cells from dataset for analysis of X-linked genes!
+
+
+```{r}
+mean_met <- CTdata::mean_methylation_in_embryo()
+mean_met <- mean_met[rowRanges(mean_met)$external_gene_name %in% CT_genes_X_met,]
+
+
+# => Removed Y-sperm cells from dataset for analysis of X-linked genes!
+Y_sperm_cells <- as_tibble(colData(mean_met), rownames = "cell") %>% 
+  filter(Genotype.of.the.embryo == "Y") %>% 
+  pull(cell)
+
+bilan_oocytes <- as_tibble(assay(mean_met), rownames = "gene") %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met), rownames = "cell")) %>% 
+  filter(!low_quality) %>% 
+  #filter(!cell %in% Y_sperm_cells) %>% 
+  filter(Genotype.of.the.embryo != "XXX") %>% 
+  filter(Stage %in% c("MII Oocyte")) %>% 
+  dplyr::select(gene, cell, met) %>% 
+  pivot_wider(names_from = cell, values_from = met)
+
+bilan_sperm <- as_tibble(assay(mean_met), rownames = "gene") %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met), rownames = "cell")) %>% 
+  filter(!cell %in% Y_sperm_cells) %>% 
+  filter(!low_quality) %>% 
+  filter(Stage %in% c("Sperm"))  %>% 
+  dplyr::select(gene, cell, met) %>% 
+  pivot_wider(names_from = cell, values_from = met)
+
+mat_oocytes <- as.matrix(bilan_oocytes[,-1])
+rownames(mat_oocytes) <- bilan_oocytes$gene
+
+mat_sperm <- as.matrix(bilan_sperm[,-1])
+rownames(mat_sperm) <- bilan_sperm$gene
+
+
+# Remove genes with too many missing values
+# Genes must have at least met values in 5 oocytes and in 5 sperm cells
+genes_selected1 <- tibble(gene = rownames(mat_oocytes),
+                       mean_met = rowMeans(mat_oocytes, na.rm = TRUE),
+                       non_missing_values = rowSums(!is.na(mat_oocytes)) ) %>% 
+  arrange(desc(non_missing_values)) %>% 
+  filter(non_missing_values >= non_missing_values_thr) %>% 
+  pull(gene)
+
+genes_selected2 <- tibble(gene = rownames(mat_sperm),
+                       mean_met = rowMeans(mat_sperm, na.rm = TRUE),
+                       non_missing_values = rowSums(!is.na(mat_sperm)) ) %>% 
+  arrange(desc(non_missing_values)) %>% 
+  filter(non_missing_values >= non_missing_values_thr) %>% 
+  pull(gene)
+
+genes_selected <- BiocGenerics::intersect(genes_selected1, genes_selected2)
+
+# Order by decreasing methylation levels in oocytes
+gene_ordered <- tibble(gene = rownames(mat_oocytes[genes_selected,]),
+                       mean_met = rowMeans(mat_oocytes[genes_selected,], na.rm = TRUE)) %>% 
+  arrange(desc(mean_met)) %>% 
+  pull(gene)
+
+gene_reordered <- gene_ordered
+# SPANXD comes first as also methylated in sperm
+if ("SPANXD" %in% gene_ordered){
+  gene_reordered <- c( gene_ordered[-which(gene_ordered == "SPANXD")], "SPANXD")
+}
+
+```
+
+`r length(gene_reordered)` genes kept.
+
+```{r}
+X_linked_CT_genes_selected <- gene_reordered
+
+h_oocytes <- Heatmap(mat_oocytes[gene_reordered, ],
+               column_title = "MII oocytes",
+               name = 'Met',
+               col = colorRamp2(c(1:100),colorRampPalette(
+                 c("moccasin","dodgerblue4"))(100)),
+               na_col = "gray80",
+                     left_annotation = rowAnnotation(
+                       met = anno_block(
+                         gp = gpar(fill = c(MethDep_colors[1]),
+                                   face = "bold",
+                                   col = "black", lwd = 0.2),
+                         width = unit(c(0.5), "cm"),
+                         labels = "X-linked MethDep", 
+                         labels_gp = gpar(col = "white", fontsize = 10))),
+               clustering_method_rows = "ward.D",
+               cluster_rows = FALSE,
+               cluster_columns = FALSE,
+               show_row_names = FALSE,
+               show_column_names = TRUE,
+               show_heatmap_legend = TRUE,
+               show_row_dend = FALSE,
+               row_names_gp = gpar(fontsize = 5),
+               column_names_gp = gpar(fontsize = 0),
+               column_names_side = "bottom",
+               row_names_side = "left",
+                 width = unit(4, "cm"),
+                 height = unit(6, "cm"))
+
+gene_to_label <- c("MAGEC2", "DDX53", "MAGEB16", "MAGEB6", "TEX13C", "PASD1", "SSX1", "CT45A10", "SPANXD", "VCX", "GAGE2A")
+ind_to_label <- which(rownames(mat_sperm[gene_reordered, ]) %in% gene_to_label)
+ha <- rowAnnotation(lab = anno_mark(at = ind_to_label, 
+                                        labels = rownames(mat_sperm[gene_reordered, ][ind_to_label,]),
+                                        labels_gp = gpar(fontsize = 6)))
+ 
+
+h_sperm <- Heatmap(mat_sperm[gene_reordered, ],
+                   column_title = "Sperm",
+                   name = 'Met',
+                   col = colorRamp2(c(1:100),colorRampPalette(
+                     c("moccasin","dodgerblue4"))(100)),
+                   na_col = "gray80",
+                   clustering_method_rows = "ward.D",
+                   cluster_rows = FALSE,
+                   cluster_columns = FALSE,
+                   show_row_names = TRUE,
+                   show_column_names = TRUE,
+                   show_heatmap_legend = TRUE,
+                   show_row_dend = FALSE,
+                   row_names_gp = gpar(fontsize = 6),
+                   column_names_gp = gpar(fontsize = 0),
+                   column_names_side = "bottom",
+                   row_names_side = "left",
+                   right_annotation = ha,
+                 width = unit(4, "cm"),
+                 height = unit(6, "cm"))
+
+ht_list <- h_oocytes + h_sperm
+
+pdf(file = "../figs/Fig7E.pdf", width = 6, height = 4)
+draw(ht_list, merge_legend = TRUE, ht_gap = unit(0.1, "cm"))
+dev.off()
+
+draw(ht_list, merge_legend = TRUE, ht_gap = unit(0.1, "cm"))
+```
+
+
+### Quantification
+
+#### based on mean methylation values 
+
+Calculated the **mean** methylation of each gene in MII oocytes and in sperm
+
+
+
+```{r}
+bilan_mean_CT_prom <- rbind(
+  tibble(gene = gene_reordered,
+       mean_met = rowMeans(mat_oocytes[gene_reordered, ], na.rm = TRUE)) %>% 
+  mutate(cell_type = "MII oocytes"),
+  tibble(gene = gene_reordered,
+       mean_met = rowMeans(mat_sperm[gene_reordered, ], na.rm = TRUE)) %>% 
+  mutate(cell_type = "Sperm"))
+
+DT::datatable(bilan_mean_CT_prom)
+
+knitr::kable(bilan_mean_CT_prom %>% 
+  group_by(cell_type) %>% 
+  dplyr::summarise(Mean_prom_met = mean(mean_met), Median_prom_met = median(mean_met)))
+```
+
+
+t.test: Is methylation higher in oocytes than in sperm ?
+
+```{r}
+bilan_mean_CT_prom %>% 
+  ggplot(aes(x = cell_type, y = mean_met, color = cell_type)) +
+  geom_boxplot(alpha = 0) +
+  scale_color_manual(values = gamete_colors) +
+  theme_bw() +
+  theme(aspect.ratio = 2,
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        legend.position = "none") +
+  ylab("Mean promoter methylation (%)") +
+  xlab('')
+
+
+gridExtra::grid.arrange(bilan_mean_CT_prom %>% 
+                          ggplot(aes(x = mean_met)) +
+                          geom_histogram(bins = 10),
+                        bilan_mean_CT_prom %>% 
+                          ggplot(aes(x = log1p(mean_met))) +
+                          geom_histogram(bins = 10), ncol = 2)
+
+# bilan_mean_CT_prom %>% filter(cell_type == "MII oocytes") %>% pull(gene)
+# bilan_mean_CT_prom %>% filter(cell_type == "Sperm") %>% pull(gene)
+```
+
+t.test
+
+```{r}
+t.test(bilan_mean_CT_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_CT_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p())
+```
+
+t.test but one-side
+
+```{r}
+t.test(bilan_mean_CT_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_CT_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p(),
+       alternative = "greater")
+```
+
+
+t.test paired
+
+```{r}
+t.test(bilan_mean_CT_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_CT_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p(), 
+       paired = TRUE)
+```
+
+t.test one-side paired
+
+```{r}
+t.test(bilan_mean_CT_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_CT_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p(),
+       alternative = "greater", 
+       paired = TRUE)
+```
+
+
+
+## Other X-linked genes
+
+All X-linked genes other than MethDep CT genes 
+
+Kept genes with at least `r non_missing_values_thr` methylation value per cell type
+
+Removed Y-sperm cells from dataset for analysis of X-linked genes!
+
+
+```{r}
+mean_met <- CTdata::mean_methylation_in_embryo()
+mean_met_X_chr <- mean_met[rowRanges(mean_met)$chr == "X", ]
+
+CTP_genes_X_met <- all_genes %>%
+  filter(regulated_by_methylation) %>%
+  filter(CT_gene_type == "CTP_gene") %>%
+  pull(external_gene_name)
+
+X_linked_not_CT <- all_genes %>% 
+  filter(chr == "X") %>% 
+  filter(!external_gene_name %in% CT_genes_X_met) %>% 
+  pull(external_gene_name)
+
+mean_met_X_chr <- mean_met_X_chr[rowRanges(mean_met_X_chr)$external_gene_name %in% X_linked_not_CT,]
+```
+
+
+```{r}
+# => Removed Y-sperm cells from dataset for analysis of X-linked genes!
+Y_sperm_cells <- as_tibble(colData(mean_met_X_chr), rownames = "cell") %>% 
+  filter(Genotype.of.the.embryo == "Y") %>% 
+  pull(cell)
+
+bilan_oocytes <- as_tibble(assay(mean_met_X_chr), rownames = "gene") %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met_X_chr), rownames = "cell")) %>% 
+  filter(!low_quality) %>% 
+  filter(Genotype.of.the.embryo != "XXX") %>% 
+  filter(Stage %in% c("MII Oocyte")) %>% 
+  dplyr::select(gene, cell, met) %>% 
+  pivot_wider(names_from = cell, values_from = met)
+
+bilan_sperm <- as_tibble(assay(mean_met_X_chr), rownames = "gene") %>% 
+  pivot_longer(names_to = "cell", values_to = "met", -gene) %>% 
+  left_join(as_tibble(colData(mean_met_X_chr), rownames = "cell")) %>% 
+  filter(!cell %in% Y_sperm_cells) %>% 
+  filter(!low_quality) %>% 
+  filter(Stage %in% c("Sperm"))  %>% 
+  dplyr::select(gene, cell, met) %>% 
+  pivot_wider(names_from = cell, values_from = met)
+
+mat_oocytes <- as.matrix(bilan_oocytes[,-1])
+rownames(mat_oocytes) <- bilan_oocytes$gene
+mat_sperm <- as.matrix(bilan_sperm[,-1])
+rownames(mat_sperm) <- bilan_sperm$gene
+
+
+# Remove genes with too many missing values
+# Genes must have at least met values in 5 oocytes and in 5 sperm cells
+genes_selected1 <- tibble(gene = rownames(mat_oocytes),
+                       mean_met = rowMeans(mat_oocytes, na.rm = TRUE),
+                       non_missing_values = rowSums(!is.na(mat_oocytes)) ) %>% 
+  arrange(desc(non_missing_values)) %>% 
+  filter(non_missing_values >= non_missing_values_thr) %>% 
+  pull(gene)
+
+genes_selected2 <- tibble(gene = rownames(mat_sperm),
+                       mean_met = rowMeans(mat_sperm, na.rm = TRUE),
+                       non_missing_values = rowSums(!is.na(mat_sperm)) ) %>% 
+  arrange(desc(non_missing_values)) %>% 
+  filter(non_missing_values >= non_missing_values_thr) %>% 
+  pull(gene)
+
+genes_selected <- BiocGenerics::intersect(genes_selected1, genes_selected2)
+
+# Order by decreasing methylation levels in oocytes
+gene_ordered <- tibble(gene = rownames(mat_oocytes[genes_selected,]),
+                       mean_met = rowMeans(mat_oocytes[genes_selected,], na.rm = TRUE)) %>% 
+  arrange(desc(mean_met)) %>% 
+  pull(gene)
+
+length(gene_ordered)
+
+h_oocytes <- Heatmap(mat_oocytes[gene_ordered, ],
+                     column_title = "MII oocytes",
+                     name = 'Met',
+                     col = colorRamp2(c(1:100),colorRampPalette(
+                       c("moccasin","dodgerblue4"))(100)),
+                     na_col = "gray80",
+                     clustering_method_rows = "ward.D",
+                     cluster_rows = FALSE,
+                     cluster_columns = FALSE,
+                     show_row_names = TRUE,
+                     show_column_names = TRUE,
+                     show_heatmap_legend = TRUE,
+                     show_row_dend = FALSE,
+                     row_names_gp = gpar(fontsize = 0),
+                     column_names_gp = gpar(fontsize = 0),
+                     column_names_side = "bottom",
+                     row_names_side = "left",
+                     width = unit(4, "cm"),
+                     height = unit(8, "cm"))
+
+
+h_sperm <- Heatmap(mat_sperm[gene_ordered, ],
+                   column_title = "Sperm",
+                   name = 'Met',
+                   col = colorRamp2(c(1:100),colorRampPalette(
+                     c("moccasin","dodgerblue4"))(100)),
+                   na_col = "gray80",
+                   clustering_method_rows = "ward.D",
+                   cluster_rows = FALSE,
+                   cluster_columns = FALSE,
+                   show_row_names = TRUE,
+                   show_column_names = TRUE,
+                   show_heatmap_legend = TRUE,
+                   show_row_dend = FALSE,
+                   row_names_gp = gpar(fontsize = 0),
+                   column_names_gp = gpar(fontsize = 0),
+                   column_names_side = "bottom",
+                   row_names_side = "left",
+                   width = unit(4, "cm"),
+                   height = unit(8, "cm"))
+
+ht_list1 <- h_oocytes + h_sperm
+
+draw(ht_list1, merge_legend = TRUE, ht_gap = unit(0.1, "cm"))
+```
+
+idem but cluster by methylation in sperm
+
+```{r}
+# Order by decreasing methylation levels in sperm
+gene_ordered <- tibble(gene = rownames(mat_sperm[genes_selected,]),
+                       mean_met = rowMeans(mat_sperm[genes_selected,], na.rm = TRUE)) %>%
+  arrange(desc(mean_met)) %>%
+  pull(gene)
+
+
+h_oocytes <- Heatmap(mat_oocytes[gene_ordered, ],
+                     column_title = "MII oocytes",
+                     name = 'Met',
+                     col = colorRamp2(c(1:100),colorRampPalette(
+                       c("moccasin","dodgerblue4"))(100)),
+                     na_col = "gray80",
+                     clustering_method_rows = "ward.D",
+                     cluster_rows = FALSE,
+                     cluster_columns = FALSE,
+                     show_row_names = TRUE,
+                     show_column_names = TRUE,
+                     show_heatmap_legend = TRUE,
+                     show_row_dend = FALSE,
+                     row_names_gp = gpar(fontsize = 0),
+                     column_names_gp = gpar(fontsize = 0),
+                     column_names_side = "bottom",
+                     row_names_side = "left",
+                     width = unit(4, "cm"),
+                     height = unit(8, "cm"))
+
+
+h_sperm <- Heatmap(mat_sperm[gene_ordered, ],
+                   column_title = "Sperm",
+                   name = 'Met',
+                   col = colorRamp2(c(1:100),colorRampPalette(
+                     c("moccasin","dodgerblue4"))(100)),
+                   na_col = "gray80",
+                   clustering_method_rows = "ward.D",
+                   cluster_rows = FALSE,
+                   cluster_columns = FALSE,
+                   show_row_names = TRUE,
+                   show_column_names = TRUE,
+                   show_heatmap_legend = TRUE,
+                   show_row_dend = FALSE,
+                   row_names_gp = gpar(fontsize = 0),
+                   column_names_gp = gpar(fontsize = 0),
+                   column_names_side = "bottom",
+                   row_names_side = "left",
+                   width = unit(4, "cm"),
+                   height = unit(8, "cm"))
+
+ht_list2 <- h_oocytes + h_sperm
+
+draw(ht_list2, merge_legend = TRUE, ht_gap = unit(0.1, "cm"))
+
+
+```
+
+
+
+#### t.test
+
+t.test Is methylation higher in oocytes than in sperm ?
+
+```{r}
+gene_reordered <- gene_ordered
+bilan_mean_other_prom <- rbind(
+  tibble(gene = gene_reordered,
+       mean_met = rowMeans(mat_oocytes[gene_reordered, ], na.rm = TRUE)) %>% 
+  mutate(cell_type = "MII oocytes"),
+  tibble(gene = gene_reordered,
+       mean_met = rowMeans(mat_sperm[gene_reordered, ], na.rm = TRUE)) %>% 
+  mutate(cell_type = "Sperm"))
+
+
+DT::datatable(bilan_mean_other_prom)
+
+knitr::kable(bilan_mean_other_prom %>% 
+  group_by(cell_type) %>% 
+  dplyr::summarise(Mean_prom_met = mean(mean_met), Median_prom_met = median(mean_met)))
+
+bilan_mean_other_prom %>% 
+  ggplot(aes(x = cell_type, y = mean_met, color = cell_type)) +
+  geom_boxplot(alpha = 0) +
+  scale_color_manual(values = gamete_colors) +
+  theme_bw() +
+  theme(aspect.ratio = 2,
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        legend.position = "none") +
+  ylab("Mean promoter methylation (%)") +
+  xlab('')
+```
+
+t.test
+
+```{r}
+t.test(bilan_mean_other_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_other_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p())
+```
+
+t.test but one-side
+
+```{r}
+t.test(bilan_mean_other_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_other_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p(),
+       alternative = "greater")
+```
+
+
+t.test paired
+
+```{r}
+t.test(bilan_mean_other_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_other_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p(), 
+       paired = TRUE)
+```
+
+t.test one-side paired
+
+```{r}
+t.test(bilan_mean_other_prom %>% filter(cell_type == "MII oocytes") %>% pull(mean_met) %>% log1p(),
+       bilan_mean_other_prom %>% filter(cell_type == "Sperm") %>% pull(mean_met) %>% log1p(),
+       alternative = "greater", 
+       paired = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+## Alltogether
+
+
+```{r}
+bilan <- rbind(bilan_mean_CT_prom %>% mutate(group = "X-linked CG MethDep"),
+bilan_mean_other_prom %>% mutate(group = "X-linked non CG")) 
+  
+# bilan %>% 
+#   ggplot(aes(x = cell_type, y = mean_met, color = cell_type)) +
+#   geom_boxplot(alpha = 0) +
+#   facet_wrap(~ group) +
+#   scale_color_manual(values = gamete_colors) +
+#   theme_bw() +
+#   theme(aspect.ratio = 2,
+#         panel.grid.minor = element_blank(),
+#         panel.grid.major = element_blank(),
+#         legend.position = "none")
+
+bilan$group <- factor(bilan$group)
+levels(bilan$group) <- c("X-linked\nCG MethDep","X-linked\nnon CG")
+
+group_colors <- c("X-linked\nCG MethDep" = "indianred2", "X-linked\nnon CG"= "gray40")
+fig <- bilan %>% 
+  ggplot(aes(x = cell_type, y = mean_met, color = group, fill = group)) +
+  scale_color_manual(values = group_colors) +
+    scale_fill_manual(values = group_colors) +
+  geom_boxplot(alpha = 0.2, outliers = FALSE) +
+  #facet_wrap(~ group) +
+  #scale_color_manual(values = gamete_colors) +
+  theme_bw() +
+  theme(#aspect.ratio = 2,
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        legend.position = "inside",
+        legend.position.inside = c(0.75, 0.85),
+        legend.key.spacing.y = unit(0.3, 'cm'),
+        legend.background = element_blank(),
+        #legend.spacing.x = unit(20.0, 'cm'),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 12),
+        axis.text = element_text(size = 12, face = "bold")) +
+  ylab("Mean promoter methylation (%)")
+
+pdf(file = paste0("../figs/Fig7F.pdf"), height = 3, width = 3)
+fig
+dev.off()
+
+fig
+```
+
+
+## Welch test
+
+
+
+Welch test (t.test but set var.equal = FALSE)
+
+*Welch test is more robust than t.tests when the number of sample per group is very different*
+
+
+
+For` X-linked MethDep`, methylation is also significantly different between `oocytes` and `sperm`:
+
+
+```{r}
+bilan <- bilan %>% 
+  mutate(Group = paste0(group, "_", cell_type)) %>% 
+  mutate(log_mean_met = log1p(mean_met))
+
+
+t.test(bilan %>% 
+         filter(cell_type == "MII oocytes") %>% 
+         filter(group == "X-linked\nCG MethDep") %>% pull(log_mean_met),
+      bilan %>% 
+         filter(cell_type == "Sperm") %>% 
+         filter(group == "X-linked\nCG MethDep") %>% pull(log_mean_met),
+        var.equal = FALSE)
+```
+
+For` X-linked Non MethDep`, methylation is also significantly different between `oocytes` ad `sperm`:
+
+```{r}
+t.test(bilan %>% 
+         filter(cell_type == "MII oocytes") %>% 
+         filter(group == "X-linked\nnon CG") %>% pull(log_mean_met),
+      bilan %>% 
+         filter(cell_type == "Sperm") %>% 
+         filter(group == "X-linked\nnon CG") %>% pull(log_mean_met),
+      var.equal = FALSE)
+
+```
+
+Methylation is highly significantly different in oocytes between `X-linked MethDep` and `X-linked non CG`:
+
+```{r}
+t.test(bilan %>% 
+         filter(cell_type == "MII oocytes") %>% 
+         filter(group == "X-linked\nCG MethDep") %>% pull(log_mean_met),
+      bilan %>% 
+         filter(cell_type == "MII oocytes") %>% 
+         filter(group == "X-linked\nnon CG") %>% pull(log_mean_met),
+      var.equal = FALSE)
+
+# wilcox.test(bilan %>% 
+#          filter(cell_type == "MII oocytes") %>% 
+#          filter(group == "X-linked\nCG MethDep") %>% pull(mean_met),
+#       bilan %>% 
+#          filter(cell_type == "MII oocytes") %>% 
+#          filter(group == "X-linked\nnon CG") %>% pull(mean_met))
+```
+
+Methylation is not significantly different in sperm between `X-linked MethDep` and `X-linked non CG`:
+
+```{r}
+t.test(bilan %>% 
+         filter(cell_type == "Sperm") %>% 
+         filter(group == "X-linked\nCG MethDep") %>% pull(log_mean_met),
+      bilan %>% 
+         filter(cell_type == "Sperm") %>% 
+         filter(group == "X-linked\nnon CG") %>% pull(log_mean_met),
+      var.equal = FALSE)
+
+# wilcox.test(bilan %>% 
+#          filter(cell_type == "MII oocytes") %>% 
+#          filter(group == "X-linked\nCG MethDep") %>% pull(mean_met),
+#       bilan %>% 
+#          filter(cell_type == "MII oocytes") %>% 
+#          filter(group == "X-linked\nnon CG") %>% pull(mean_met))
+```
+
+
+
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+

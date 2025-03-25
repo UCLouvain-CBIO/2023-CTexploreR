@@ -1,0 +1,799 @@
+---
+title: "DE analysis, F vs M embryos, Zhu scWGBS data"
+subtitle: "pseudo-bulk analysis"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+
+```{r, echo = FALSE, Results = 'asis'}
+suppressPackageStartupMessages(library("dplyr"))
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+```{r}
+library("tidyverse")
+library("ComplexHeatmap")
+library("CTexploreR")
+library("circlize")
+library("SummarizedExperiment")
+library("SingleCellExperiment")
+library("DESeq2")
+library("org.Hs.eg.db")
+library("DropletUtils")
+library("scater")
+library("scran")
+library("scuttle")
+```
+
+
+
+
+```{r}
+load("~/cluster/Packages/CTdata/eh_data/all_genes.rda")
+
+CT_genes_X_met <- all_genes %>% 
+  filter(CT_gene_type == "CT_gene") %>% 
+  filter(X_linked, regulated_by_methylation) %>% 
+  pull(external_gene_name)
+```
+
+
+Data from:
+[Single-cell DNA methylome sequencing of human preimplantation embryos. Nat Genet 50, 12–19 (2018). Zhu, P., Guo, H., Ren, Y. et al.](https://doi.org/10.1038/s41588-017-0007-6)
+
+
+**Started from raw files**
+
+- Downloaded all fastq files (including scRNAseq fastq files from ICM and TE cells)  
+
+see `/storage/research/dduv/cbio-lg/cluster/DataSets/early_embryos/Zhu_dataset/scRNAseq_reprocessed_data/` folder
+
+- All files were reprocessed, in order to:
+
+-- Show expression values in TPM rather than FPKM (previous data was downloaded on GEO as an count matrix of already processed data in FPKM values)
+
+-- Use all the cells for the differential expression analysis instead of using only the few available "bulk samples"
+
+-- Test in parallel the expression of CG X-linked MethDep when multimapping was allowed
+
+
+# Pre-processing
+
+
+## Quality control
+
+```{r}
+load("/storage/research/dduv/cbio-lg/cluster/DataSets/early_embryos/Zhu_dataset/scRNAseq_reprocessed_data/processed_data/count_matrix/coldata.rda")
+load("/storage/research/dduv/cbio-lg/cluster/DataSets/early_embryos/Zhu_dataset/scRNAseq_reprocessed_data/processed_data/count_matrix/raw_counts.rda")
+
+coldata <- as.data.frame(coldata) 
+rownames(coldata) <- coldata$sample
+coldata$gender <- ifelse(coldata$gender == "male", "M", "F")
+
+sce <- SingleCellExperiment(assays = counts[, coldata$sample],
+                      colData = coldata)
+
+# No mitochondrial genes (not in GTF or in genome ref used for alignment?)
+# grep("^MT-", x = mapIds(org.Hs.eg.db, rownames(sce), "SYMBOL", "ENSEMBL"), value = TRUE)
+
+sce <- sce[rowSums(assay(sce)) > 0,]
+
+sce$gender <- factor(sce$gender, levels = c("M", "F"))
+
+rowData(sce)$gene <- mapIds(org.Hs.eg.db, rownames(sce), "SYMBOL", "ENSEMBL")
+
+assayNames(sce) <- "counts"
+rowData(sce)$is_mito <- FALSE
+rowData(sce)$is_mito[grep(pattern = "^MT-", x = rowData(sce)$gene, value = FALSE)] <- TRUE
+sce <- addPerCellQC(sce, subsets=list(Mito = rowData(sce)$is_mito))
+# No MT genes
+#table(sce$subsets_Mito_percent)
+
+table(sce$cell_type, sce$gender)
+```
+
+
+### Number of detected genes
+
+```{r}
+thr_detection <- 7500
+
+# Define outliers with low detection level
+outliers <- colnames(sce)[isOutlier(sce$detected, type = "lower")]
+outliers <- colnames(sce)[sce$detected < thr_detection]
+##outliers
+
+sce$outlier_detected <- FALSE
+sce$outlier_detected[sce$sample %in% outliers] <- TRUE
+
+f1 <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = 1, y = detected)) +
+  geom_jitter(aes(x = 1, y = detected, color = outlier_detected)) +
+  geom_violin(alpha = 0.5, outliers = F) +
+  geom_hline(yintercept = thr_detection, linetype = "dashed") +
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+                axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Number of detected genes")
+
+
+f2 <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = 1, y = detected)) +
+  geom_jitter(aes(x = 1, y = detected, color = bulk_or_single_cell)) +
+  geom_violin(alpha = 0.5, outliers = F) +
+    scale_color_manual(values = c("blue", "cyan3"))+
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+                axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+
+  ggtitle("Number of detected genes")
+
+gridExtra::grid.arrange(f2, f1, ncol = 3)
+```
+
+
+cells with less than `r thr_detection` are considered as outliers
+
+### Sequencing depth
+
+```{r}
+thr_sum <- 7000000
+outliers <- colnames(sce)[sce$sum < thr_sum]
+
+sce$outlier_sum <- FALSE
+sce$outlier_sum[sce$sample %in% outliers] <- TRUE
+
+f1 <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = 1, y = sum)) +
+  geom_jitter(aes(x = 1, y = sum, color = outlier_sum)) +
+  geom_violin(alpha = 0.5, outliers = F) +
+  geom_hline(yintercept = thr_sum, linetype = "dashed") +
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+                axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Total number of reads")
+
+f3 <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = 1, y = sum)) +
+  geom_jitter(aes(x = 1, y = sum, color = outlier_detected)) +
+  geom_violin(alpha = 0.5, outliers = F) +
+  geom_hline(yintercept = thr_sum, linetype = "dashed") +
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+                axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Total number of reads")
+
+f2 <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = 1, y = sum)) +
+  geom_jitter(aes(x = 1, y = sum, color = bulk_or_single_cell)) +
+  geom_violin(alpha = 0.5, outliers = F) +
+  scale_color_manual(values = c("blue", "cyan3"))+
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+                axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+
+  ggtitle("Total number of reads")
+
+gridExtra::grid.arrange(f2, f3, f1, ncol = 3)
+```
+
+cells with less than `r thr_sum` are considered as outliers
+
+### Ouliers identification
+
+```{r}
+outliers <- as_tibble(colData(sce)) %>% 
+  filter(outlier_sum | outlier_detected) %>% 
+  pull(sample)
+
+sce$outlier <- FALSE
+sce$outlier[sce$sample %in% outliers] <- TRUE
+
+# Define outliers with low sum value
+f1 <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = 1, y = detected)) +
+  geom_jitter(aes(x = 1, y = detected, color = outlier)) +
+  geom_violin(alpha = 0.5, outliers = F) +
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) 
+
+f2 <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = 1, y = sum)) +
+  geom_jitter(aes(x = 1, y = sum, color = outlier)) +
+  geom_violin(alpha = 0.5, outliers = F) +
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) 
+
+gridExtra::grid.arrange(f1, f2, ncol = 2)
+```
+
+=> Removed outlier cells
+
+
+```{r}
+table(outlier =sce$outlier)
+
+sce <- sce[, !sce$outlier]
+```
+
+=> `r dim(sce)[2]` cells kept
+
+```{r}
+table(sce$cell_type, sce$gender)
+```
+
+### No link between data's quality and sex factor
+
+Checked that the data's quality is independant of sex factor:
+
+```{r}
+a <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = gender, y = detected)) +
+  geom_jitter(aes(x = gender, y = detected, color = gender)) +
+  geom_boxplot(alpha = 0.5, outliers = F) +
+    scale_color_manual(values = c("deeppink", "steelblue"))+
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+
+  ggtitle("Number of detected genes")
+
+
+b <- as_tibble(colData(sce)) %>% 
+  ggplot(aes(x = gender, y = sum)) +
+  geom_jitter(aes(x = gender, y = sum, color = gender)) +
+  geom_boxplot(alpha = 0.5, outliers = F) +
+    scale_color_manual(values = c("deeppink", "steelblue"))+
+  theme(legend.position = "bottom",
+        legend.title.position =  "top",
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+
+  ggtitle("Sequencing Depth")
+
+
+gridExtra::grid.arrange(a,b, ncol = 2)
+```
+
+
+
+### Normalisation
+
+```{r}
+## Normalisation
+sce <- logNormCounts(sce, transform = "none")
+sce <- logNormCounts(sce) 
+
+# Normalise into TPMs for visualisations
+featureC_results <- read_tsv("/storage/research/dduv/cbio-lg/cluster/DataSets/early_embryos/Zhu_dataset/scRNAseq_reprocessed_data/processed_data/featurecounts/SRR6010592_featurecounts.tsv", 
+                             skip = 1, col_names = TRUE)
+
+
+# Check the order of the genes
+#unique(rownames(counts) == featureC_results$Geneid)
+x1 <- counts / featureC_results$Length * 1000
+total <- colSums(x1)
+
+TPM_matrix <- as_tibble(x1, rownames = "ensembl_gene_id") %>% 
+  gather(sample, counts, -ensembl_gene_id) %>% 
+  left_join(enframe(total) %>% 
+              dplyr::rename(sample = name, total = value)) %>% 
+  mutate(TPM = counts / total * 1000000) %>% 
+  dplyr::select(ensembl_gene_id, sample, TPM) %>% 
+  spread(sample, TPM) 
+TPM <- as.matrix(TPM_matrix[,-1])
+rownames(TPM) <- TPM_matrix$ensembl_gene_id
+
+assay(sce, "TPM") <- TPM[rownames(sce), colnames(sce)]
+```
+
+# CG genes Heatmaps
+
+- Show X-linked MethDep CG genes detected in at least 20% of cells
+
+- Added Ubiquitous and Y-linked genes as controls
+
+
+```{r}
+my_genes <- all_genes %>% 
+  filter(CT_gene_type == "CT_gene") %>% 
+  filter(X_linked, regulated_by_methylation) %>% 
+  filter(ensembl_gene_id %in% rownames(sce)) 
+
+legend_colors <- c(
+  "#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598",
+  "#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F",
+  "#9E0142")
+
+legends_param <- list(
+  labels_gp = gpar(col = "black", fontsize = 7),
+  title_gp = gpar(col = "black", fontsize = 7, fontface = "bold"),
+  simple_anno_size = unit(0.1, "cm"),
+  row_names_gp = gpar(fontsize = 7),
+  annotation_name_side = "left",
+  border = FALSE,
+  border_gp = gpar(lwd = 0.1),
+  grid_width = unit(0.2, "cm"),
+  grid_height = unit(0.2, "cm"),
+  legend_height = unit(0.2, "cm"))
+
+draw_embryo_exp_Zhu_dataset <- function(genes, 
+                            rm_outlier = FALSE,
+                            cell_type = NULL,
+                            detected_in_percent_of_cells = 0,
+                            split_rows_by = "chr_met", 
+                            font_size = 6,
+                            gender = NULL,
+                            logTransform = FALSE,
+                            assayName = "TPM",
+                            scale_lims = NULL,
+                            clustRow = TRUE,
+                            h_width = 8, 
+                            h_height = 8, 
+                            show_right_annot = TRUE,
+                            clust_method = "centroid"){
+  
+
+  
+  # Top Annotations
+  df_col <- colData(sce)
+  
+  if(rm_outlier) df_col <- df_col[!df_col$outlier,]
+  fig_title <- "Blastocyst cells"
+  if(!is.null(cell_type)) {
+    df_col <- df_col[df_col$cell_type == cell_type,]
+    fig_title <- paste0(cell_type, " cells")
+  }
+  
+  df_col$sex <- df_col$gender
+  levels(df_col$sex) <- c("Male", "Female")
+  df_col <- df_col[order(df_col$sex, df_col$cell_type ),]
+  df_col$Stage <- df_col$cell_type
+  df_col$bulk_or_single_cell <- df_col$bulk_or_single_cell
+  df_col$group <- paste0(df_col$sex, " ", df_col$cell_type, " cells")
+
+  
+  column_ha_sex = HeatmapAnnotation(
+    sex = df_col$sex,
+    col = list(sex = c("Female" = "deeppink", "Male" = "steelblue")),
+        border = FALSE, 
+    simple_anno_size = unit(0.2, "cm"), 
+    annotation_legend_param = legends_param,
+    annotation_name_gp = gpar(fontsize = 0)) 
+  
+    column_ha_Stage = HeatmapAnnotation(
+    CellType = df_col$Stage,
+    col = list(CellType = c("ICM" = "gray", "TE" = "gray10")),
+    border = FALSE, 
+    simple_anno_size = unit(0.2, "cm"), 
+    annotation_legend_param = legends_param,
+    annotation_name_gp = gpar(fontsize = 0)) 
+    
+  column_ha_bulk = HeatmapAnnotation(
+    bulk_or_single_cell = df_col$bulk_or_single_cell,
+    col = list(bulk_or_single_cell = c("single cell" = "cyan3", "bulk cells" = "blue")),
+    border = FALSE, 
+    simple_anno_size = unit(0.2, "cm"), 
+    annotation_legend_param = legends_param,
+    annotation_name_gp = gpar(fontsize = 0)) 
+  
+  column_ha_outlier = HeatmapAnnotation(
+    outlier = df_col$outlier,
+    col = list(outlier = c("TRUE" = "cyan", "FALSE" = "gray10")),
+    border = FALSE, 
+    simple_anno_size = unit(0.2, "cm"), 
+    annotation_legend_param = legends_param,
+    annotation_name_gp = gpar(fontsize = 0)) 
+  
+  
+  column_ha_sample = HeatmapAnnotation(
+    sample = df_col$source_name,
+    #col = list(outlier = c("TRUE" = "cyan", "FALSE" = "gray10")),
+    border = FALSE, 
+    simple_anno_size = unit(0.2, "cm"), 
+    annotation_legend_param = legends_param,
+    annotation_name_gp = gpar(fontsize = 0)) 
+  
+  column_ha_detected = HeatmapAnnotation(
+    detected = df_col$detected,
+    #col = list(outlier = c("TRUE" = "cyan", "FALSE" = "gray10")),
+    border = FALSE, 
+    simple_anno_size = unit(0.2, "cm"), 
+    annotation_legend_param = legends_param,
+    annotation_name_gp = gpar(fontsize = 0)) 
+  
+  ensembl_gene <- data.frame(external_gene_name = all_genes$external_gene_name)  
+  rownames(ensembl_gene) <- all_genes$ensembl_gene_id
+
+  genes <- genes[genes %in% rownames(sce)]
+  
+  mat <- assay(sce, assayName)[genes, ]
+  rownames(mat) <- ensembl_gene[rownames(mat),]
+  
+  # Show only genes detected in more than x% of cells
+  mat <- mat[rowSums(mat > 0) >= dim(mat)[2]*detected_in_percent_of_cells,]
+
+  if (logTransform) mat <- log1p(mat)
+  
+   if (is.null(scale_lims)) scale_lims <- c(0, max(mat))
+  heatmap_colors <- colorRamp2(
+    seq(scale_lims[1], scale_lims[2], length = 11), legend_colors)
+  
+  lines <- tibble(gene = rownames(mat)) %>% 
+    mutate(group = case_when(gene %in% CT_genes$external_gene_name ~ "X-linked CG MethDep",
+                             !gene %in% CT_genes$external_gene_name ~ "Control")) %>% 
+    mutate(group = factor(group, levels = c("X-linked CG MethDep", "Control")))
+  
+  
+  
+  ht1 <- Heatmap(mat[, rownames(df_col)],
+                 name = assayName,
+                 #column_title = fig_title,
+                 clustering_method_rows = "ward.D2",
+                 clustering_method_columns = "ward.D2",
+                 column_split = df_col$sex,
+                 row_split = lines$group,
+                 row_gap = unit(c(1), "mm"),
+                 col = heatmap_colors,
+                 cluster_rows = clustRow,
+                 cluster_columns = FALSE,
+                 cluster_row_slices = FALSE,
+                 cluster_column_slices = FALSE,
+                 show_row_names = TRUE,
+                 show_column_names = FALSE,
+                 show_row_dend = FALSE,
+                 column_names_gp = gpar(fontsize = 8),
+                 column_names_centered = TRUE,
+                 row_names_gp = gpar(fontsize = font_size),
+                 row_names_side = "left",
+                 border = TRUE,
+                 border_gp = gpar(lwd = 0.5),
+                 column_names_side = c("bottom"),
+                 column_names_rot = 90,
+                 column_title_gp = gpar(fontsize = 10, face = "bold"),
+                 row_title_gp = gpar(fontsize = 0),
+                 top_annotation = c(column_ha_Stage,
+                                     column_ha_sex,
+                 #                    # column_ha_sample,
+                                     gap = unit(0.1, "mm")),
+                 # use_raster = TRUE,
+                 # raster_device = "CairoPNG",
+                 # raster_quality = 10,
+                 width = unit(h_width, "cm"),
+                 height = unit(h_height, "cm"),
+                 heatmap_legend_param = legends_param)
+      
+  ht1
+}
+
+controls <- all_genes %>% 
+  filter(external_gene_name %in% c("DDX3Y", "RPS4Y1", "EIF1AY")) 
+
+fig <- draw_embryo_exp_Zhu_dataset(genes = c(my_genes$ensembl_gene_id, controls$ensembl_gene_id), 
+                            clustRow = T, 
+                            cell_type = NULL,
+                            font_size = 5,
+                            scale_lims = c(0, 100),
+                            h_width = 5,
+                            h_height = 4,
+                            logTransform = F,
+                            detected_in_percent_of_cells = 0.2)
+
+
+
+pdf(file = "../figs/Fig8B_Heatmap_CG_metDep_in_Zhu_dataset.pdf", width = 6, height = 4)
+fig 
+
+dev.off()
+
+fig 
+```
+
+
+NB: Are represented on the heatmap only genes detected in more than 20% of cells
+
+
+
+# Differential expression analysis
+
+**pseudo-bulk samples**
+
+Group cells by embryo
+
+Kept embryos with more than one cell
+
+```{r}
+dds_pb <- scuttle::summarizeAssayByGroup(sce,
+                            ids = colData(sce)[, "source_name"],
+                            statistics = "sum")
+
+coldata <- tibble(source_name = dds_pb$ids,
+                  ncells = dds_pb$ncells) %>%
+  left_join(as_tibble(colData(sce)) %>% 
+              dplyr::select(source_name, cell_type, gender) %>% 
+              unique()) %>%
+  as.data.frame()
+
+rownames(coldata) <- coldata$source_name
+
+dds_pb$cell_type <- coldata[colnames(dds_pb),]$cell_type
+dds_pb$gender <- coldata[colnames(dds_pb),]$gender
+dds_pb$sample <- coldata[colnames(dds_pb),]$source_name
+dds_pb$embryo <- paste0("embryo", gsub("Te", '', gsub("Icm", '', x = gsub("-\\w*", '', x = dds_pb$sample))))
+
+dds_pb <- dds_pb[, dds_pb$ncells > 1]
+
+as_tibble(colData(dds_pb)) %>% 
+  DT::datatable()
+
+dds <- DESeqDataSetFromMatrix(countData = assay(dds_pb), 
+                              colData = colData(dds_pb),
+                              design = ~ cell_type + gender) 
+
+dds$gender <- factor(dds$gender, levels = c("M", "F"))
+
+dds <- estimateSizeFactors(dds)
+filtering_thr <- 10
+keep <- rowSums(counts(dds, normalize = TRUE) >= filtering_thr ) >= 3
+dds <- DESeq(dds[keep,])
+
+table(dds$cell_type, dds$gender)
+```
+
+
+## PCA
+
+```{r}
+## PCA
+rld <- varianceStabilizingTransformation(dds)
+rv <- rowVars(assay(rld))
+selected <- order(rv, decreasing = TRUE)[seq_len(min(500, length(rv)))]
+pca <- prcomp(t(assay(rld)[selected, ]))
+percentVar <- pca$sdev^2/sum(pca$sdev^2)
+percentVar_1 <- paste0("PC1: ", round(percentVar[1] * 100), "% variance")
+percentVar_2 <- paste0("PC2: ", round(percentVar[2] * 100), "% variance")
+percentVar_3 <- paste0("PC3: ", round(percentVar[3] * 100), "% variance")
+percentVar_4 <- paste0("PC4: ", round(percentVar[4] * 100), "% variance")
+pcaData <- as_tibble(pca$x, rownames = "samples") %>%
+  dplyr::select(samples, "PC1", "PC2", "PC3", "PC4") %>%
+  left_join(as_tibble(colData(dds), rownames = "samples"))
+
+ggplot(pcaData, aes(x = PC1, y = PC2, col = gender, shape = cell_type, label = sample)) +
+  geom_point(size = 4) +
+  xlab(percentVar_1) +
+  ylab(percentVar_2) +
+  geom_text(color = "black", size = 2)
+
+ggplot(pcaData, aes(x = PC1, y = PC2, col = cell_type, shape = gender, label = sample)) +
+  geom_point(size = 4) +
+  xlab(percentVar_1) +
+  ylab(percentVar_2) +
+  geom_text(color = "black", size = 2)
+
+
+ggplot(pcaData, aes(x = PC1, y = PC2, col = embryo, shape = gender, label = sample)) +
+  geom_point(size = 4) +
+  xlab(percentVar_1) +
+  ylab(percentVar_2) +
+  geom_text(color = "black", size = 2)
+```
+
+
+
+
+
+## Volcano plot
+
+
+```{r}
+resultsNames(dds)
+res_dds <- results(dds, 
+                   name = "gender_F_vs_M", 
+                   independentFiltering = FALSE)
+
+#load("~/cluster/CBIO-templates/ensembl_2_geneName/transcripts_infos.rda")
+
+res_tbl <- as_tibble(res_dds, rownames = "ensembl_gene_id") %>%
+  left_join(all_genes %>% dplyr::select(ensembl_gene_id, external_gene_name, chr) %>% unique()) %>%
+  arrange(padj)
+
+padj_thr <- 0.05
+log2FC_thr <- 1
+
+ggplot(res_tbl %>% filter(!is.na(padj)), aes(x = pvalue)) + 
+    geom_histogram(bins = 20, boundary = 0) +
+  ggtitle("pvalues histogram")
+
+res_tbl %>% 
+  filter(!is.na(padj)) %>% 
+  ggplot(aes(x= log2FoldChange, y = -log10(padj))) +
+  geom_point(size = 0.5) +
+    geom_point(data = res_tbl %>% 
+               filter(chr == "X"), 
+             aes(x= log2FoldChange, y = -log10(padj)), 
+             color = "steelblue", size = 0.55) +
+  geom_point(data = res_tbl %>% 
+               filter(external_gene_name %in% CT_genes$external_gene_name), 
+             aes(x= log2FoldChange, y = -log10(padj)), 
+             color = "red", size = 0.55) +
+  geom_point(data = res_tbl %>% 
+               filter(chr == "Y"), 
+             aes(x= log2FoldChange, y = -log10(padj)), 
+             color = "black", size = 0.55) +
+  ylab("-log10(padj)") +
+  ggrepel::geom_text_repel(data = subset(res_tbl, external_gene_name %in% CT_genes$external_gene_name),
+                           aes(x = log2FoldChange, y = -log10(padj), label = external_gene_name),
+                           size = 2,
+                           segment.size = 0.1, max.overlaps = 30) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray70") +
+  geom_hline(yintercept = -log10(padj_thr), linetype = "dashed", color = "gray70") 
+```
+
+
+
+### Volcano plot for paper
+
+
+
+```{r}
+load("~/cluster/Packages/CTdata/eh_data/CT_genes.rda")
+
+CTP_genes <- CT_genes %>% 
+  filter(CT_gene_type == "CTP_gene")
+
+CT_genes <- CT_genes %>% 
+  filter(CT_gene_type == "CT_gene")
+
+thr <- 1e-25
+logFC_thr <- 10
+res_tbl_modified <- res_tbl %>% 
+  mutate(group = case_when(padj < thr ~ "padj_outlier",
+                           abs(log2FoldChange) >= logFC_thr ~ "logFC_outlier",
+                           padj > thr & abs(log2FoldChange) < logFC_thr ~ "others")) %>% 
+  mutate(padj = ifelse(padj <= thr, thr, padj)) %>% 
+  mutate(log2FoldChange = ifelse(log2FoldChange >= logFC_thr, logFC_thr, log2FoldChange)) %>% 
+   mutate(log2FoldChange = ifelse(log2FoldChange <= -logFC_thr, -logFC_thr, log2FoldChange)) %>% 
+  filter(chr %in% c(1:22, "X", "Y")) %>% 
+  mutate(chr = case_when(chr %in% c("X", "Y") ~ chr,
+                         !chr %in% c("X", "Y") ~ "Autosome")) %>% 
+  mutate(X_CG_MethDEp = case_when(external_gene_name %in% CT_genes$external_gene_name ~ TRUE,
+                             external_gene_name %in% CT_genes$external_gene_name ~ FALSE)) %>% 
+  filter(!is.na(padj)) %>% 
+  filter(!is.na(group)) 
+  #filter(abs(log2FoldChange) > 0.05)
+
+labeled_X_genes <- res_tbl_modified %>% 
+  filter(chr == "X") %>% 
+  filter(abs(log2FoldChange) > 5  & padj < 0.005) %>% 
+  filter(!external_gene_name %in% CT_genes$external_gene_name) %>%
+  arrange(padj) 
+
+labeled_CT_genes <- res_tbl_modified %>% 
+  filter(external_gene_name %in% CT_genes_X_met & padj < 0.05 & log2FoldChange > 2) %>% 
+  arrange(padj) 
+
+X_sign_genes <- res_tbl_modified %>% 
+  filter(chr == "X") %>% 
+  filter(padj < padj_thr) %>% 
+  arrange(padj) #%>% head(30)
+
+Y_sign_genes <- res_tbl_modified %>% 
+  filter(chr == "Y") %>% 
+  #filter(padj < padj_thr) %>% 
+  filter(log2FoldChange < 0 ) %>% 
+  arrange(padj) #%>% head(30)
+
+
+set.seed = 123
+fig <- res_tbl_modified %>% 
+  ggplot(aes(x= log2FoldChange, y = -log10(padj))) +
+  geom_point(data = res_tbl_modified,
+             aes(x= log2FoldChange, y = -log10(padj), shape = group),
+             size = 1, color = "gray80") + 
+    geom_point(data = res_tbl_modified %>% 
+               filter(external_gene_name %in% X_sign_genes$external_gene_name),
+             aes(x= log2FoldChange, y = -log10(padj), shape = group),
+             size = 1, color = "steelblue") +
+  geom_point(data = res_tbl_modified %>% 
+               filter(ensembl_gene_id %in% Y_sign_genes$ensembl_gene_id),
+             aes(x= log2FoldChange, y = -log10(padj), shape = group),
+             size = 1, color = "black") +
+  geom_point(data = res_tbl_modified %>% 
+               filter(external_gene_name %in% CT_genes_X_met),# & padj < padj_thr),
+             aes(x= log2FoldChange, y = -log10(padj), shape = group),
+             size = 1.2, color = "firebrick2") +
+  scale_shape_manual(values = c(15, 19, 17))+
+  xlab("log2FoldChange") + 
+  ylab("-log10(padj)") +
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             color = "black", linewidth = 0.2) +
+  # geom_vline(xintercept = -1, linetype = "dashed",
+  #            color = "black", linewidth = 0.2) +
+  geom_hline(yintercept = -log10(padj_thr), 
+             linetype = "dashed", color = "black", linewidth = 0.2) +
+  ggrepel::geom_text_repel(data = subset(res_tbl_modified, external_gene_name %in% labeled_X_genes$external_gene_name),
+                           aes(x = log2FoldChange, y = -log10(padj), label = external_gene_name),
+                           size = 2, color = "steelblue",
+                           segment.size = 0.1, max.overlaps = 10) +
+   ggrepel::geom_text_repel(data = subset(res_tbl_modified, external_gene_name %in% labeled_CT_genes$external_gene_name),
+                           aes(x = log2FoldChange, y = -log10(padj), label = external_gene_name),
+                           size = 2, color = "firebrick2",
+                           segment.size = 0.1, max.overlaps = 30) +
+  ggtitle("Female versus male cells blastocysts cells (Zhu dataset)") +
+  theme_bw() +
+  theme(legend.position = "none",
+        title = element_text(size = 10),
+        panel.grid = element_blank()) 
+fig
+
+
+pdf(file = "../figs/Fig8D_Volcano_Zhu_dataset.pdf", width = 4, height = 4)
+fig 
+
+dev.off()
+
+fig 
+```
+
+- Genes with a padjusted value < `r thr` are represented as triangles
+
+- Genes with an absolute log2FC > `r logFC_thr` are represented as squares 
+
+- Red dots = X-linked MethDep genes
+
+- Blue dots = X-linked genes not CG genes
+
+- Black dots = Y-linked genes
+
+- Gray dots = other genes
+
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
