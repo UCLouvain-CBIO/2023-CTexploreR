@@ -1745,6 +1745,192 @@ fig
 dev.off()</code></pre>
 <pre><code>## png 
 ##   2</code></pre>
+<div id="t.tests" class="section level2">
+<h2>t.tests</h2>
+<div id="gametes-stage" class="section level3">
+<h3>Gametes stage</h3>
+<pre class="r"><code>t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == &quot;MII Oocyte&quot;) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;X&quot;) %&gt;% 
+  filter(Stage == &quot;Sperm&quot;) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == &quot;MII Oocyte&quot;) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;X&quot;) %&gt;% filter(Stage == &quot;Sperm&quot;) %&gt;% pull(mean_met)
+## t = 8.13, df = 19.497, p-value = 1.093e-07
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  37.35529 63.19767
+## sample estimates:
+## mean of x mean of y 
+## 58.738883  8.462406</code></pre>
+</div>
+<div id="at-zygote-stage" class="section level3">
+<h3>at zygote stage</h3>
+<pre class="r"><code>stage &lt;- &quot;Zygote&quot;
+t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;XY&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;XY&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met)
+## t = -3.5224, df = 24.909, p-value = 0.001675
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  -44.28047 -11.60082
+## sample estimates:
+## mean of x mean of y 
+##  30.39688  58.33752</code></pre>
+</div>
+<div id="at-2-cell-stage" class="section level3">
+<h3>at 2-cell stage</h3>
+<pre class="r"><code>stage &lt;- &quot;2-cell&quot;
+t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;XY&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;XY&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met)
+## t = -2.7575, df = 19.655, p-value = 0.01227
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  -40.348224  -5.571739
+## sample estimates:
+## mean of x mean of y 
+##  28.16204  51.12202</code></pre>
+</div>
+<div id="at-4-cell-stage" class="section level3">
+<h3>at 4-cell stage</h3>
+<pre class="r"><code>stage &lt;- &quot;4-cell&quot;
+t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;XY&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;XY&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met)
+## t = -2.8603, df = 18.468, p-value = 0.01021
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  -48.276997  -7.432071
+## sample estimates:
+## mean of x mean of y 
+##  14.62174  42.47627</code></pre>
+</div>
+<div id="at-8-cell-stage" class="section level3">
+<h3>at 8-cell stage</h3>
+<pre class="r"><code>stage &lt;- &quot;8-cell&quot;
+t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;XY&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;XY&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met)
+## t = -3.0114, df = 22.672, p-value = 0.006285
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  -41.577174  -7.699805
+## sample estimates:
+## mean of x mean of y 
+##  29.86985  54.50834</code></pre>
+</div>
+<div id="at-morula-stage" class="section level3">
+<h3>at Morula stage</h3>
+<pre class="r"><code>stage &lt;- &quot;Morula&quot;
+t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;XY&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;XY&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met)
+## t = -2.3778, df = 23.797, p-value = 0.0258
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  -39.179087  -2.759906
+## sample estimates:
+## mean of x mean of y 
+##  24.28898  45.25848</code></pre>
+</div>
+<div id="at-blastocyst-stage" class="section level3">
+<h3>at Blastocyst stage</h3>
+<pre class="r"><code>stage &lt;- &quot;Blastocyst&quot;
+t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;XY&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;XY&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met)
+## t = -2.9609, df = 27.239, p-value = 0.006288
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  -30.435024  -5.525593
+## sample estimates:
+## mean of x mean of y 
+##  23.23384  41.21415</code></pre>
+</div>
+<div id="at-post-implantation-stage" class="section level3">
+<h3>at Post-implantation stage</h3>
+<pre class="r"><code>stage &lt;- &quot;Post-impl&quot;
+t.test(bilan_selected %&gt;% 
+  filter(Genotype == &quot;XX&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met),
+  bilan_selected %&gt;% 
+  filter(Genotype == &quot;XY&quot;) %&gt;% 
+  filter(Stage == stage) %&gt;% 
+  pull(mean_met))</code></pre>
+<pre><code>## 
+##  Welch Two Sample t-test
+## 
+## data:  bilan_selected %&gt;% filter(Genotype == &quot;XX&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met) and bilan_selected %&gt;% filter(Genotype == &quot;XY&quot;) %&gt;% filter(Stage == stage) %&gt;% pull(mean_met)
+## t = -3.8639, df = 31.789, p-value = 0.0005165
+## alternative hypothesis: true difference in means is not equal to 0
+## 95 percent confidence interval:
+##  -10.129194  -3.134978
+## sample estimates:
+## mean of x mean of y 
+##  78.47818  85.11026</code></pre>
+</div>
+</div>
 </div>
 <div id="example-of-genes-showing-a-transient-imprint-in-early-embryos" class="section level1">
 <h1>Example of genes showing a transient imprint in early embryos</h1>

@@ -213,9 +213,122 @@ fig
 dev.off()
 
 ```
+## t.tests
+
+### Gametes stage
+
+```{r}
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == "MII Oocyte") %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "X") %>% 
+  filter(Stage == "Sperm") %>% 
+  pull(mean_met))
+```
+
+### at zygote stage
+
+```{r}
+stage <- "Zygote"
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "XY") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met))
+```
 
 
 
+### at 2-cell stage
+
+```{r}
+stage <- "2-cell"
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "XY") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met))
+```
+
+
+
+### at 4-cell stage
+
+```{r}
+stage <- "4-cell"
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "XY") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met))
+```
+
+### at 8-cell stage
+
+```{r}
+stage <- "8-cell"
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "XY") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met))
+```
+### at Morula stage
+
+```{r}
+stage <- "Morula"
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "XY") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met))
+```
+
+
+### at Blastocyst stage
+
+```{r}
+stage <- "Blastocyst"
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "XY") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met))
+```
+
+### at Post-implantation stage
+
+```{r}
+stage <- "Post-impl"
+t.test(bilan_selected %>% 
+  filter(Genotype == "XX") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met),
+  bilan_selected %>% 
+  filter(Genotype == "XY") %>% 
+  filter(Stage == stage) %>% 
+  pull(mean_met))
+```
 
 # Example of genes showing a transient imprint in early embryos
 
