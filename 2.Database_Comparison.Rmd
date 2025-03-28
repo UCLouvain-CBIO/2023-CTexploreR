@@ -1,0 +1,964 @@
+---
+title: "Database comparison"
+output: 
+  html_document:
+    theme: cosmo
+    df_print : paged
+    highlight : default
+    toc: yes
+    number_sections : TRUE
+    toc_depth : 4
+---
+
+# Loading data and packages
+
+
+```{r library, message = FALSE}
+library(readxl)
+library(readr)
+library(CTexploreR)
+library(Vennerable)
+library(biomaRt)
+library(tidyverse)
+library(SummarizedExperiment)
+library(UpSetR)
+```
+
+Gene names/synonyms required for databases cleaning
+
+```{r ensembl_synonym, warning=FALSE, message=FALSE}
+ensembl <- biomaRt::useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+attributes_vector <- c("ensembl_gene_id", "external_gene_name",
+                       "external_synonym", "gene_biotype",
+                       "chromosome_name", "band", "start_position", "end_position",
+                       "strand")
+ensembl_gene_synonym <- as_tibble(getBM(attributes = attributes_vector, mart = ensembl))
+
+ensembl_gene_synonym <- ensembl_gene_synonym %>%
+  mutate(external_synonym = sub(pattern = "ORF", external_synonym, 
+                                replacement = "orf"))
+
+attributes_vector <- c("ensembl_gene_id", "external_gene_name")
+ensembl_gene_names <- as_tibble(getBM(attributes = attributes_vector, mart = ensembl))
+
+attributes_vector <- c("external_gene_name",
+                       "external_synonym")
+gene_synonym <- as_tibble(getBM(attributes = attributes_vector, mart = ensembl))
+```
+
+
+```{r load_data, warning=FALSE, message=FALSE}
+CT_and_CTP_genes <- CT_genes()
+CT_genes <- (filter(CT_genes(), CT_gene_type == "CT_gene"))
+
+
+upset_text_size <- c(2, 2, 2, 2, 3.5, 3.5)
+ #c(intersection size title, intersection size tick labels, set size title, 
+ # set size tick labels, set names, numbers above bars)
+```
+
+
+# Database comparison
+
+## Lists cleaning
+
+CT lists from other databases have been checked (using GTEx and our 
+`GTEx_expression()` function and GeneCards) in order to remove duplicated
+gene names or deprecated ones and allow comparison between databases.
+
+### CTdatabase
+
+Online list copied in a csv file, several lists exist so we combined them.
+
+We checked gene names that were a concatenation of two genes (choice using
+biomaRt synonyms to get the official one), checked which ones had the right names,
+removed duplicated genes, verified lost genes and added back those that should 
+be there.
+
+```{r CTdatabase_cleaning, message = FALSE}
+CTdatabase <- read_delim("data/CTdatabase1.csv", delim = ";", 
+                         escape_double = FALSE, trim_ws = TRUE)
+colnames(CTdatabase) <- c("Family", "Gene_Name", "Chromosomal_localization",
+                          "CT_identifier")
+CTdatabase_bis <- read_csv2("data/CTdatabase2.csv")
+CTdatabase <- left_join(CTdatabase, CTdatabase_bis, 
+                        by = c("Gene_Name" = "Gene_Symbol"))
+
+
+CTdatabase_single <- CTdatabase %>%
+  mutate(Gene_Name = sub(pattern = "/.*$", Gene_Name, replacement = ""))
+CTdatabase_single <- CTdatabase_single %>%
+  mutate(Gene_Name = sub(pattern = ",.*$", Gene_Name, replacement = ""))
+
+
+CTdatabase_official_names <- 
+  unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, 
+                       external_gene_name)) %>%
+  filter(external_gene_name %in% CTdatabase_single$Gene_Name) %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA)
+CTdatabase_synonym <- 
+  ensembl_gene_synonym %>%
+  filter(external_synonym %in% CTdatabase_single$Gene_Name) %>%
+  mutate(Gene_Name = external_synonym) %>%
+  dplyr::select(ensembl_gene_id, external_gene_name, Gene_Name, external_synonym)
+CTdatabase_cleaned <- 
+  rbind(CTdatabase_official_names, CTdatabase_synonym) %>% 
+  left_join(CTdatabase_single)
+
+
+duplicated_genes <- CTdatabase_cleaned$Gene_Name[duplicated(CTdatabase_cleaned$Gene_Name)]
+bad_ids <- ensembl_gene_synonym %>%
+  filter(external_gene_name %in% duplicated_genes | external_synonym %in% duplicated_genes) %>%
+  filter(chromosome_name %in% grep(pattern = "H", x = chromosome_name, value = TRUE)) %>%
+  pull(ensembl_gene_id)
+CTdatabase_cleaned <- CTdatabase_cleaned %>%
+  dplyr::filter(!ensembl_gene_id %in% bad_ids)
+CTdatabase_cleaned <- CTdatabase_cleaned %>%
+  filter(!ensembl_gene_id == "ENSG00000052126")
+CTdatabase_cleaned <- CTdatabase_cleaned %>% 
+  filter(!(ensembl_gene_id == "ENSG00000183305" & Gene_Name == "MAGEA2"))
+CTdatabase_cleaned <- CTdatabase_cleaned %>% 
+  filter(!ensembl_gene_id == "ENSG00000204648")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CSAG3B")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CSAG2", "external_synonym"] <- "CSAG3B"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CT45A4")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CT45A3", "external_synonym"] <- "CT45A4"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "LAGE-1b")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CTAG2", "external_synonym"] <- "LAGE-1b"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CT16.2")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "PAGE5", "external_synonym"] <- "CT16.2"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "SPANXB2")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "SPANXB1", "external_synonym"] <- "SPANXB2"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "SPANXE")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "SPANXD", "external_synonym"] <- "SPANXE"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE1C")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE1D")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE1E")
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "XAGE2B")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "XAGE2", "external_synonym"] <- "XAGE2B"
+CTdatabase_cleaned <- filter(CTdatabase_cleaned, Gene_Name != "CTAGE-2")
+CTdatabase_cleaned[CTdatabase_cleaned$Gene_Name == "CTAGE1", "external_synonym"] <- "CTAGE-2"
+
+
+CTdatabase_cleaned <- ensembl_gene_synonym %>%
+  mutate(Gene_Name = external_synonym) %>%
+  filter(external_synonym == "CXorf61") %>%
+  dplyr::select(ensembl_gene_id, external_gene_name, Gene_Name, external_synonym) %>%
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "Cxorf61", 
+                    c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name)) %>%
+  filter(external_gene_name == "CCNA1") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "cyclin A1", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "GOLGA6L2") %>%
+  filter(ensembl_gene_id == "ENSG00000174450") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "GOLGAGL2 FA", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "LYPD6B") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC130576", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "CT62") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC196993", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "CT75") %>%
+  filter(ensembl_gene_id == "ENSG00000291155") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC440934", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "LINC01192") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC647107", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "TSPY1") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "LOC728137", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+CTdatabase_cleaned <- unique(dplyr::select(ensembl_gene_synonym, ensembl_gene_id, external_gene_name))%>%
+  filter(external_gene_name == "SSX2B") %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA) %>% 
+  cbind(CTdatabase_single[CTdatabase_single$Gene_Name == "SSX2b", 
+                          c("Family", "Chromosomal_localization", "CT_identifier", "Classification")]) %>% 
+  rbind(CTdatabase_cleaned)
+
+CTdatabase_cleaned <- CTdatabase_cleaned[!duplicated(CTdatabase_cleaned$external_gene_name), ]
+
+
+length(CTdatabase_cleaned$ensembl_gene_id[!CTdatabase_cleaned$ensembl_gene_id%in%all_genes$ensembl_gene_id])
+```
+
+9 genes are not found in all_genes even when using gene names and ensembl_gene_id
+
+
+### Jamin's list
+
+Excel file coming from supplemental data.
+
+```{r Jamin_clean, message = FALSE}
+Jamin_core_CT <- read_excel("data/Jamin_core_CT.xlsx")
+Jamin_core_CT[Jamin_core_CT$Gene == "KIAA1211", "Gene"] <- "CRACD"
+Jamin_core_CT[Jamin_core_CT$Gene == "CXorf67", "Gene"] <- "EZHIP"
+Jamin_core_CT[Jamin_core_CT$Gene == "KIAA1109", "Gene"] <- "BLTP1"
+Jamin_core_CT[Jamin_core_CT$Gene == "C10orf82", "Gene"] <- "SPMIP5"
+Jamin_core_CT[Jamin_core_CT$Gene == "TTC30B", "Gene"] <- "IFT70B"
+Jamin_core_CT[Jamin_core_CT$Gene == "TTC30A", "Gene"] <- "IFT70A"
+```
+
+All gene names have been linked to the right name in all_genes
+
+### Wang's CTatlas
+
+
+Excel file coming from supplemental data.
+
+```{r Wang_cleaning, message = FALSE}
+Wang_CT <- read_excel("data/Wang_Suppl_Data_3.xlsx", 
+    sheet = "Supplementary Data 3B", skip = 1)
+colnames(Wang_CT)[1] <- "ensembl_gene_id"
+
+Wang_CT <- ensembl_gene_names %>% 
+  filter(ensembl_gene_id %in% Wang_CT$ensembl_gene_id) %>%
+  right_join(Wang_CT)
+
+Wang_CT[Wang_CT$ensembl_gene_id == "ENSG00000181013", "external_gene_name"] <- "C17orf47"
+Wang_CT[Wang_CT$ensembl_gene_id == "ENSG00000204293", "external_gene_name"] <- "OR8B2"
+
+
+length(Wang_CT$external_gene_name[!Wang_CT$external_gene_name %in% all_genes$external_gene_name])
+```
+
+12 genes are not found in all_genes, by gene names or ensemble gene id and no 
+other name.
+
+### Carter's list
+
+```{r Carter_clean, message = FALSE}
+Carter_CT_list <- read_table("data/Carter_CT_list.txt", skip = 1)
+Carter_CT <- Carter_CT_list[Carter_CT_list$CT_Expression,]
+
+Carter_CT[Carter_CT$Gene == "ENSG00000261649", "Gene_Name"] <- "GOLGA6L7"
+Carter_CT[Carter_CT$Gene == "ENSG00000239620", "Gene_Name"] <- "PRR20G"
+Carter_CT[Carter_CT$Gene == "ENSG00000168148", "Gene_Name"] <- "H3-4"
+Carter_CT[Carter_CT$Gene == "ENSG00000204296", "Gene_Name"] <- "TSBP1"
+Carter_CT[Carter_CT$Gene == "ENSG00000180219", "Gene_Name"] <- "GARIN6"
+Carter_CT[Carter_CT$Gene == "ENSG00000172717", "Gene_Name"] <- "GARIN2"
+Carter_CT[Carter_CT$Gene == "ENSG00000174015", "Gene_Name"] <- "CBY2"
+Carter_CT[Carter_CT$Gene == "ENSG00000224960", "Gene_Name"] <- "PPP4R3C"
+Carter_CT[Carter_CT$Gene == "ENSG00000221843", "Gene_Name"] <- "SPATA31H1"
+Carter_CT[Carter_CT$Gene == "ENSG00000177947", "Gene_Name"] <- "CIMAP1A"
+Carter_CT[Carter_CT$Gene == "ENSG00000172073", "Gene_Name"] <- "SPMIP9"
+Carter_CT[Carter_CT$Gene == "ENSG00000229894", "Gene_Name"] <- "GK3"
+Carter_CT[Carter_CT$Gene == "ENSG00000249693", "Gene_Name"] <- "SPMAP2L"
+Carter_CT[Carter_CT$Gene == "ENSG00000173728", "Gene_Name"] <- "SPMIP3"
+
+length(Carter_CT$Gene[!Carter_CT$Gene %in% all_genes$ensembl_gene_id])
+
+```
+
+1 gene cannot be found in all_genes even by ensemble or gene name
+
+### Bruggeman's list
+
+Excel file from supplemental data.
+
+```{r Bruggeman_clean, message=FALSE}
+Bruggeman_data <- read_excel("data/Bruggeman_suppl_data.xlsx", skip = 1,
+                           sheet = "1D")
+
+Bruggeman_official_names <- gene_synonym %>% 
+  dplyr::select(external_gene_name) %>% 
+  unique() %>% 
+  filter(external_gene_name %in% Bruggeman_data$Gene) %>%
+  mutate(Gene_Name = external_gene_name) %>%
+  mutate(external_synonym = NA)
+
+Bruggeman_synonym <- gene_synonym %>%
+  filter(external_synonym %in% Bruggeman_data$Gene) %>%
+  mutate(Gene_Name = external_synonym) %>%
+  dplyr::select(external_gene_name, Gene_Name, external_synonym)
+
+Bruggeman_synonym <- Bruggeman_synonym[-which(Bruggeman_synonym$Gene_Name %in% 
+                          Bruggeman_official_names$Gene_Name),]
+
+Bruggeman_CT <- rbind(Bruggeman_official_names, Bruggeman_synonym)
+
+lost <- Bruggeman_data[which(!Bruggeman_data$Gene %in% 
+                               c(Bruggeman_CT$Gene_Name)), "Gene"]
+colnames(lost) <- "external_gene_name"
+lost$Gene_Name <- rep(NA, nrow(lost))
+lost$external_synonym <- rep(NA, nrow(lost))
+
+lost[lost$external_gene_name == "C21orf59", "Gene_Name"] <- "CFAP298"
+lost[lost$external_gene_name == "C11orf57", "Gene_Name"] <- "NKAPD1"
+lost[lost$external_gene_name == "C7orf55", "Gene_Name"] <- "FMC1"
+lost[lost$external_gene_name == "C10orf12", "Gene_Name"] <- "LCOR"
+lost[lost$external_gene_name == "RPL19P12", "Gene_Name"] <- "RPL19P12"
+lost[lost$external_gene_name == "C16orf59", "Gene_Name"] <- "TEDC2"
+lost[lost$external_gene_name == "TTTY15", "Gene_Name"] <- "USP9Y"
+lost[lost$external_gene_name == "C17orf53", "Gene_Name"] <- "HROB"
+lost[lost$external_gene_name == "C1orf112", "Gene_Name"] <- "FIRRM"
+lost[lost$external_gene_name == "C12orf66", "Gene_Name"] <- "KICS2"
+lost[lost$external_gene_name == "C9orf84", "Gene_Name"] <- "SHOC1"
+lost[lost$external_gene_name == "C10orf25", "Gene_Name"] <- "ZNF22-AS1"
+lost[lost$external_gene_name == "C20orf197", "Gene_Name"] <- "LINC02910"
+lost[lost$external_gene_name == "C3orf67", "Gene_Name"] <- "CFAP20DC"
+lost[lost$external_gene_name == "C8orf37", "Gene_Name"] <- "CFAP418"
+lost[lost$external_gene_name == "C22orf34", "Gene_Name"] <- "MIR3667HG"
+lost[lost$external_gene_name == "C9orf131", "Gene_Name"] <- "SPATA31G1"
+lost[lost$external_gene_name == "C17orf80", "Gene_Name"] <- "MTNAP1"
+
+Bruggeman_CT <- rbind(Bruggeman_CT, lost) 
+
+missing_Bruggeman <- Bruggeman_CT[!Bruggeman_CT$Gene_Name %in% 
+                                    all_genes$external_gene_name, ]$Gene_Name
+
+external_names_to_keep <- gene_synonym %>%
+   filter(external_synonym %in% missing_Bruggeman) %>% # take those in Bruggeman that are synonym
+   filter(external_gene_name %in% all_genes$external_gene_name) %>% # but that are actually in all_genes with another name
+   mutate(Gene_Name = external_gene_name)
+ 
+Bruggeman_CT[Bruggeman_CT$external_synonym %in% 
+                    external_names_to_keep$external_synonym, 
+                  "Gene_Name"] <- external_names_to_keep$Gene_Name
+
+Bruggeman_CT <- Bruggeman_CT %>% 
+  dplyr::select(Gene_Name)
+
+
+length(Bruggeman_CT$Gene_Name[!Bruggeman_CT$Gene_Name %in% 
+                                all_genes$external_gene_name])
+
+```
+
+39 genes are not found with their names in all genes
+
+## CTexploreR data for selection pipeline
+
+To characterise the differences between our database and other, we need the 
+category we created in CTexploreR. For this, we have the object `all_genes` in 
+CTdata that contains the CT analysis for all genes. More info in 
+
+Hereunder is what we used for our selection pipeline (coming from 
+`make_all_genes_prelim.R` and `130_make_all_genes_and_CT_genes.R` in `CTdata`). 
+
+
+```{r all_genes, message = FALSE, warning = FALSE}
+all_genes
+```
+
+From there, we filtered based on the testis_specificity ("testis_specific", which
+is based on expression in health tissue and scRNA seq info from HPA), 
+CCLE_category ("activated") and TCGA_category ("activated" or 
+"multimapping_issue") to have our CT genes. Then, when wanting to validate TSS 
+manually, we realised that for some genes, reads were not properly aligned to
+exons which might reflect a poorly defined transcription in these regions and 
+are hence likely unreliable.
+
+Some genes were also characterized as Cancer-Testis preferential genes when 
+testis specificity was less stringent
+
+
+## CTexploreR VS CTdatabase
+
+```{r CTdatabase_ours}
+CTdatabase_ours <- Venn(list(CTexploreR = CT_genes$external_gene_name,
+                             CTdatabase = CTdatabase_cleaned$external_gene_name))
+gp <- VennThemes(compute.Venn(CTdatabase_ours))
+gp[["Face"]][["11"]]$fill <-  "mediumaquamarine"
+gp[["Face"]][["10"]]$fill <-  "darkseagreen1"
+gp[["Face"]][["01"]]$fill <-  "lightsteelblue1"
+gp[["Set"]][["Set2"]]$col <-  "paleturquoise4"
+gp[["Set"]][["Set1"]]$col <-  "darkseagreen4"
+gp[["SetText"]][["Set2"]]$col <-  "paleturquoise4"
+gp[["SetText"]][["Set1"]]$col <-  "darkseagreen4"
+gp[["FaceText"]][["11"]]$fontsize <- 30
+gp[["FaceText"]][["10"]]$fontsize <- 30
+gp[["FaceText"]][["01"]]$fontsize <- 30
+gp[["SetText"]][["Set2"]]$fontsize <-  30
+gp[["SetText"]][["Set1"]]$fontsize <- 30
+plot(CTdatabase_ours, gp = gp)
+
+```
+
+We find `r length(CTdatabase_ours@IntersectionSets[["11"]])/nrow(CTdatabase_cleaned)*100`
+% of CTdatabase in CTexploreR, which is 
+`r length(CTdatabase_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`% of our 
+database.
+
+
+Lost genes analysis
+
+```{r CTdatabase_lost}
+CTdatabase_lost <- all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["01"]])
+
+# 9 Genes are lost because not in any database like before
+
+table(CTdatabase_lost$testis_specificity)
+
+table(CTdatabase_lost$CT_gene_type)
+
+table(CTdatabase_lost$not_detected_in_somatic_HPA)
+
+table(CTdatabase_lost$TCGA_category)
+
+table(CTdatabase_lost$CCLE_category)
+
+table(CTdatabase_lost$TCGA_category, CTdatabase_lost$CCLE_category)
+
+
+CTdatabase_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(CTdatabase_lost,
+                testis_specificity != "testis_specific" & 
+                  CT_gene_type == "other")$external_gene_name,
+       `Not tumour activated` = 
+         filter(CTdatabase_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(CTdatabase_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+CTdatabase_lost$external_gene_name[!CTdatabase_lost$external_gene_name %in% unlist(CTdatabase_lost_upset)]
+
+upset_CTdatabase <- fromList(CTdatabase_lost_upset)
+
+upset(upset_CTdatabase,
+      text.scale = upset_text_size, 
+      mb.ratio = c(0.6, 0.4))
+```
+
+```{r, eval = FALSE, echo = FALSE}
+gp_no_label <- gp
+gp_no_label[["SetText"]][["Set2"]]$fontsize <-  0
+gp_no_label[["SetText"]][["Set1"]]$fontsize <- 0
+gp_no_label[["FaceText"]][["11"]]$fontsize <- 40
+gp_no_label[["FaceText"]][["10"]]$fontsize <- 40
+gp_no_label[["FaceText"]][["01"]]$fontsize <- 40
+pdf(file = paste0("figs/CTdatabase_comparison_venn.pdf"),
+    height = 9, width = 5)
+plot(CTdatabase_ours, gp = gp_no_label)
+dev.off()
+
+upset_text_size_save <- c(3, 2, 3, 2, 4, 4)
+ #c(intersection size title, intersection size tick labels, set size title, 
+ # set size tick labels, set names, numbers above bars)
+
+pdf(file = paste0("figs/CTdatabase_comparison_upset.pdf"),
+    height = 7, width = 8)
+upset(upset_CTdatabase,
+      text.scale = upset_text_size_save,
+      mb.ratio = c(0.6, 0.4))
+dev.off()
+```
+
+`r (nrow(CTdatabase_lost) - table(CTdatabase_lost$testis_specificity)[["testis_specific"]])/nrow(CTdatabase_lost)*100`
+% of these genes are not testis specific. 
+
+However `r table(CTdatabase_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
+
+`r (nrow(CTdatabase_lost) - table(CTdatabase_lost$TCGA_category, CTdatabase_lost$CCLE_category)["activated", "activated"])/nrow(CTdatabase_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
+
+There is one gene (SPANXN1) that is missing (in 165 from CTdatabase lost) but 
+that is not on the upset plot (164 on upset plot) as it was removed because of 
+the TSS.
+
+In their analysis, they had characterised gene specificity, some being not 
+available, not found in testis, testis-restricted, testis-selective and 
+testis/brain-restricted. Let's see how the lost genes qualify as they didn't
+mention those were strictly testis specific.
+
+```{r CTdatabase_classification}
+CTdatabase_cleaned %>% 
+  filter(external_gene_name %in% CTdatabase_lost$external_gene_name) %>% 
+  pull(Classification) %>% 
+  table()
+```
+
+We can see that most of them had no info or were testis-selective (I couldn't
+find on website or paper how they selected categories).
+
+```{r}
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]]) %>% 
+  pull(regulated_by_methylation) %>% 
+  table()
+
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]]) %>% 
+  pull(transcript_biotype) %>% 
+  table()
+table(CT_genes$transcript_biotype)
+#45 lncRNA in all CT_genes
+
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]]) %>% 
+  pull(CpG_promoter) %>% 
+  table()
+table(CT_genes$CpG_promoter)
+
+all_genes %>%
+  filter(external_gene_name %in% CTdatabase_ours@IntersectionSets[["10"]])
+
+```
+
+## CTexploreR VS omics databases
+
+```{r upset_plot}
+core_ours <- Venn(list(CTexploreR = CT_genes$external_gene_name,
+                       Jamin = Jamin_core_CT$Gene))
+
+Wang_ours <- Venn(list(CTexploreR = CT_genes$external_gene_name,
+                       Wang = Wang_CT$external_gene_name))
+
+Carter_ours <- Venn(list(CTexploreR = CT_genes$external_gene_name,
+                         Carter_CT = Carter_CT$Gene_Name))
+
+Bruggeman_ours <- Venn(list(CTexploreR = CT_genes$external_gene_name,
+                            Bruggeman = Bruggeman_CT$Gene_Name))
+
+gene_list <- list(CTexploreR = CT_genes$external_gene_name,
+                  Carter = Carter_CT$Gene_Name,
+                  Jamin = Jamin_core_CT$Gene, 
+                  CTatlas = Wang_CT$external_gene_name,
+                  Bruggeman = Bruggeman_CT$Gene_Name)
+
+upset_omics <- fromList(gene_list)
+upset(upset_omics)
+```
+
+4 in all, 60 in at least 3 databases
+
+Lost genes analysis
+
+```{r Jamin_lost}
+plot(core_ours, gp = gp)
+
+Jamin_lost <- all_genes %>%
+  filter(external_gene_name %in% core_ours@IntersectionSets[["01"]])
+
+table(Jamin_lost$testis_specificity)
+
+table(Jamin_lost$CT_gene_type)
+
+table(Jamin_lost$not_detected_in_somatic_HPA)
+
+table(Jamin_lost$TCGA_category)
+
+table(Jamin_lost$CCLE_category)
+
+table(Jamin_lost$TCGA_category, Jamin_lost$CCLE_category)
+
+Jamin_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Jamin_lost,
+                testis_specificity != "testis_specific" &
+                  CT_gene_type == "other")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Jamin_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Jamin_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Jamin <- fromList(Jamin_lost_upset)
+upset(upset_Jamin,
+      text.scale = upset_text_size)
+```
+
+```{r, eval = FALSE, echo = FALSE}
+pdf(file = paste0("figs/Jamin_comparison.pdf"))
+plot(core_ours, gp = gp)
+upset(upset_Jamin,
+      text.scale = upset_text_size)
+dev.off()
+```
+
+We find `r length(core_ours@IntersectionSets[["11"]])/nrow(Jamin_core_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(core_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+`r (nrow(Jamin_lost) - table(Jamin_lost$testis_specificity)[["testis_specific"]])/nrow(Jamin_lost)*100`% of 
+these genes are not testis specific. 
+
+However `r table(Jamin_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
+
+`r (nrow(Jamin_lost) - table(Jamin_lost$TCGA_category, Jamin_lost$CCLE_category)["activated", "activated"])/nrow(Jamin_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
+
+
+```{r Wang_lost}
+plot(Wang_ours, gp = gp)
+
+Wang_lost <- all_genes %>%
+  filter(external_gene_name %in% Wang_ours@IntersectionSets[["01"]])
+
+# 12 genes lost because no info like before
+
+table(Wang_lost$testis_specificity)
+
+table(Wang_lost$CT_gene_type)
+
+table(Wang_lost$not_detected_in_somatic_HPA)
+
+table(Wang_lost$TCGA_category)
+
+table(Wang_lost$CCLE_category)
+
+table(Wang_lost$TCGA_category, Wang_lost$CCLE_category)
+
+
+Wang_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Wang_lost,
+                testis_specificity != "testis_specific" &
+                  CT_gene_type == "other")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Wang_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Wang_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Wang <- fromList(Wang_lost_upset)
+upset(upset_Wang,
+      text.scale = upset_text_size)
+```
+
+```{r, eval = FALSE, echo = FALSE}
+pdf(file = paste0("figs/Wang_comparison.pdf"))
+plot(Wang_ours, gp = gp)
+upset(upset_Wang,
+      text.scale = upset_text_size)
+dev.off()
+```
+
+We find `r length(Wang_ours@IntersectionSets[["11"]])/nrow(Wang_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(Wang_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+`r (nrow(Wang_lost) - table(Wang_lost$testis_specificity)[["testis_specific"]])/nrow(Wang_lost)*100`% of 
+these genes are not testis specific. 
+
+However `r table(Wang_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
+
+`r (nrow(Wang_lost) - table(Wang_lost$TCGA_category, Wang_lost$CCLE_category)["activated", "activated"])/nrow(Wang_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
+
+```{r Carter_lost}
+plot(Carter_ours, gp = gp)
+
+Carter_lost <- all_genes %>%
+  filter(external_gene_name %in% Carter_ours@IntersectionSets[["01"]])
+
+# 1 lost because no info, like before
+
+table(Carter_lost$testis_specificity)
+
+table(Carter_lost$CT_gene_type)
+
+table(Carter_lost$not_detected_in_somatic_HPA)
+
+table(Carter_lost$TCGA_category)
+
+table(Carter_lost$CCLE_category)
+
+table(Carter_lost$TCGA_category, Carter_lost$CCLE_category)
+
+Carter_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Carter_lost,
+                testis_specificity != "testis_specific" &
+                  CT_gene_type == "other")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Carter_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Carter_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Carter <- fromList(Carter_lost_upset)
+upset(upset_Carter,
+      text.scale = upset_text_size)
+```
+
+```{r, eval = FALSE, echo = FALSE}
+pdf(file = paste0("figs/Carter_comparison.pdf"))
+plot(Carter_ours, gp = gp)
+upset(upset_Carter,
+      text.scale = upset_text_size)
+dev.off()
+```
+
+We find `r length(Carter_ours@IntersectionSets[["11"]])/nrow(Carter_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(Carter_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+`r (nrow(Carter_lost) - table(Carter_lost$testis_specificity)[["testis_specific"]])/nrow(Carter_lost)*100`% of 
+these genes are not testis specific. 
+
+However `r table(Carter_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
+
+`r (nrow(Carter_lost) - table(Carter_lost$TCGA_category, Carter_lost$CCLE_category)["activated", "activated"])/nrow(Carter_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
+
+```{r Bruggeman_lost}
+plot(Bruggeman_ours, gp = gp)
+
+Bruggeman_lost <- all_genes %>%
+  filter(external_gene_name %in% Bruggeman_ours@IntersectionSets[["01"]])
+
+# 38 lost, like before
+
+table(Bruggeman_lost$testis_specificity)
+
+table(Bruggeman_lost$CT_gene_type)
+
+table(Bruggeman_lost$not_detected_in_somatic_HPA)
+
+table(Bruggeman_lost$TCGA_category)
+
+table(Bruggeman_lost$CCLE_category)
+
+table(Bruggeman_lost$TCGA_category, Bruggeman_lost$CCLE_category)
+
+Bruggeman_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(Bruggeman_lost,
+                testis_specificity != "testis_specific" &
+                  CT_gene_type == "other")$external_gene_name,
+       `Not tumour activated` = 
+         filter(Bruggeman_lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(Bruggeman_lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_Bruggeman <- fromList(Bruggeman_lost_upset)
+upset(upset_Bruggeman,
+      text.scale = upset_text_size)
+```
+
+```{r, eval = FALSE, echo = FALSE}
+pdf(file = paste0("figs/Bruggeman_comparison.pdf"))
+plot(Bruggeman_ours, gp = gp)
+upset(upset_Bruggeman,
+      text.scale = upset_text_size)
+dev.off()
+```
+
+We find `r length(Bruggeman_ours@IntersectionSets[["11"]])/nrow(Bruggeman_CT)*100`
+% of CTdatabase in CTexploreR, which is `r length(Bruggeman_ours@IntersectionSets[["11"]])/nrow(CT_genes)*100`
+% of our database.
+
+`r (nrow(Bruggeman_lost) - table(Bruggeman_lost$testis_specificity)[["testis_specific"]])/nrow(Bruggeman_lost)*100`% of 
+these genes are not testis specific. 
+
+However `r table(Bruggeman_lost$CT_gene_type)[["CTP_gene"]]` of these lost 
+genes are flagged as Cancer-Testis preferential in our analysis.
+
+`r (nrow(Bruggeman_lost) - table(Bruggeman_lost$TCGA_category, Bruggeman_lost$CCLE_category)["activated", "activated"])/nrow(Bruggeman_lost)*100`
+% are not properly activated in tumors and/or cancer cell lines.
+
+## Characterisation of differences with all databases
+
+```{r all_databases}
+all_database_gene_list <- list(CTexploreR = CT_genes$external_gene_name,
+                               Carter = Carter_CT$Gene_Name,
+                               Jamin = Jamin_core_CT$Gene,
+                               CTatlas = Wang_CT$external_gene_name,
+                               Bruggeman = Bruggeman_CT$Gene_Name,
+                               CTdatabase = CTdatabase_cleaned$external_gene_name)
+
+upset_all_database <- fromList(all_database_gene_list)
+
+upset_text_size_all <- c(2, 2, 2, 2, 3, 2)
+ #c(intersection size title, intersection size tick labels, set size title, 
+ # set size tick labels, set names, numbers above bars)
+upset(upset_all_database,
+      nsets = 6,
+      nintersects = 50,
+      text.scale = upset_text_size_all,
+      mb.ratio = c(0.6, 0.4))
+
+Venn_all_database <- Venn(all_database_gene_list)
+Venn_all_database@IntersectionSets[["111111"]]
+
+common <- unique(c(core_ours@IntersectionSets[["11"]], 
+                   CTdatabase_ours@IntersectionSets[["11"]], 
+                   Wang_ours@IntersectionSets[["11"]], 
+                   Carter_ours@IntersectionSets[["11"]],
+                   Bruggeman_ours@IntersectionSets[["11"]]))
+
+length(common)
+
+length(common)/dim(CT_genes)[1] * 100
+
+
+lost_list <- unique(c(core_ours@IntersectionSets[["01"]],
+                      CTdatabase_ours@IntersectionSets[["01"]],
+                      Wang_ours@IntersectionSets[["01"]],
+                      Carter_ours@IntersectionSets[["01"]],
+                      Bruggeman_ours@IntersectionSets[["01"]]))
+
+lost <- all_genes %>%
+  filter(external_gene_name %in% lost_list)
+
+all_lost_upset <- 
+  list(`Not testis specific` = 
+         filter(lost,
+                testis_specificity != "testis_specific" &
+                  CT_gene_type == "other")$external_gene_name,
+       `Not tumour activated` = 
+         filter(lost,
+                (TCGA_category != "activated" &
+                  TCGA_category != "multimapping_issue")|
+                   CCLE_category != "activated")$external_gene_name,
+       `CT preferential` =
+         filter(lost,
+                CT_gene_type == "CTP_gene")$external_gene_name)
+
+upset_all <- fromList(all_lost_upset)
+upset(upset_all,
+      text.scale = upset_text_size)
+
+
+not_specific <- filter(lost, testis_specificity == "not_testis_specific")
+
+GTEX_expression(not_specific$external_gene_name, units = "log_TPM")
+
+somatic_testis <- filter(lost, not_detected_in_somatic_HPA == FALSE)
+
+testis_expression(somatic_testis$external_gene_name, cells = "all")
+HPA_cell_type_expression(somatic_testis$external_gene_name)
+
+not_TCGA_activated <- filter(lost, TCGA_category != "activated" & 
+                               TCGA_category != "multimapping_issue")
+
+TCGA_expression(not_TCGA_activated$external_gene_name,
+                tumor = "all",
+                units = "log_TPM")
+
+not_CCLE_activated <- filter(lost, CCLE_category  != "activated")
+
+CCLE_expression(not_CCLE_activated$external_gene_name,
+                  type = c("lung", "skin", "colorectal",
+                           "gastric", "breast", "head_and_neck"),
+                units = "log_TPM")
+
+transcript_prob <- lost %>% 
+  pull(IGV_backbone) %>% 
+  table()
+```
+
+```{r, eval = FALSE, echo = FALSE}
+pdf(file = paste0("figs/upset_all_lost.pdf"))
+upset(upset_all,
+      text.scale = upset_text_size)
+dev.off()
+
+upset_text_size_all_save <- c(3, 2, 3, 2, 4, 0)
+ #c(intersection size title, intersection size tick labels, set size title, 
+ # set size tick labels, set names, numbers above bars)
+
+pdf(file = paste0("figs/upset_all_databases.pdf"),
+    width = 15, height = 7)
+upset(upset_all_database,
+      nsets = 6,
+      nintersects = 50,
+      text.scale = upset_text_size_all_save,
+      mb.ratio = c(0.55, 0.45))
+dev.off()
+```
+
+`r length(common)` genes in our CTexploreR database are found in at least one of
+the other database, which represents `r length(common)/dim(CT_genes)[1] * 100`%.
+
+The 3 genes found in all databases are 
+`r Venn_all_database@IntersectionSets[["111111"]]`.
+
+We have lost `r length(lost_list)` genes in total. Among them, 
+`r dim(not_specific)[1]/length(lost_list)*100`% are not considered testis 
+specific, `r dim(somatic_testis)[1]/length(lost_list)*100`% are expressed in 
+somatic cells, `r dim(not_TCGA_activated)[1]/length(lost_list)*100`% 
+are not activated in TCGA samples, 
+`r dim(not_CCLE_activated)[1]/length(lost_list)*100`% are not activated in CCLE 
+cell lines and `r transcript_prob[1]/length(lost_list)*100`% is lost due to 
+transcripts problems.
+
+What about new genes in CTexploreR
+
+```{r new, warning = FALSE}
+new <- CT_genes %>% 
+  filter(external_gene_name %in% Venn_all_database@IntersectionSets[["100000"]])
+
+new
+
+table(new$testis_specificity)
+table(new$X_linked)
+table(new$regulated_by_methylation)
+table(new$X_linked, new$regulated_by_methylation)
+table(new$CpG_promoter)
+TCGA_expression(tumor = "all", genes = new$external_gene_name, 
+                units = "log_TPM")
+TCGA_expression(tumor = "all", 
+                genes = filter(new, X_linked & regulated_by_methylation)$external_gene_name, 
+                units = "log_TPM")
+testis_expression(genes = new$external_gene_name, "germ_cells")
+```
+
+There are `r dim(new)[1]` new CT genes in CTexploreR. These are all testis
+specific and mainly on autosomes. Regulation by methylation is the majority of 
+them.  There 
+is only 11 new "major" CT that are on the X chromosome and regulated by 
+methylation. CT45 are not that new. 
+
+Expression in tumours doesn't strike that much. 
+
+# SessionInfo
+
+```{r}
+sessionInfo()
+```
+
