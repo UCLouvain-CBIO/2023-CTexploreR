@@ -1,0 +1,537 @@
+---
+title: "Reviewing : Julie's answers"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print : paged
+    code_folding: hide
+---
+
+```{r, echo = FALSE, Results = 'asis'}
+suppressPackageStartupMessages(library("dplyr"))
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(CTexploreR)
+library(tidyverse)
+library(readxl)
+library(GenomicRanges)
+library(SummarizedExperiment)
+library(biomaRt)
+
+CT_genes <- CT_genes %>% 
+  filter(CT_gene_type == "CT_gene")
+
+CT_genes <- CT_genes %>% 
+  mutate(group = ifelse(regulated_by_methylation, "MethDep", "Non-MethDep"))
+MethDep_colors <- c("MethDep" = "indianred2", "Non-MethDep"= "cyan4")
+all_groups_colors <- c("X-linked Methdep CG" = "indianred2", "Non-Methdep CG"= "cyan4",
+                      "Not X Methdep CG" = "darksalmon", "Autosomal other" = "gray30", 
+                      "X-linked other" = "gray30")
+
+```
+
+
+# Review 1.1 
+
+*Comprehensive functional characterization of cancer-testis antigens defines obligate participation in multiple hallmarks of cancer.
+Maxfield KE, Taus PJ, Corcoran K, Wooten J, Macion J, Zhou Y, Borromeo M, Kollipara RK, Yan J, Xie Y, Xie XJ, Whitehurst AW. Nat Commun. 2015 Nov 16;6:8840. doi: 10.1038/ncomms9840. PMID: 26567849*
+
+What does that mean ? 
+I can compare the genes they got out with CTexploreR
+
+Suppl data 1 : 140 CTA with documented expression in solid tumors were analysed
+
+```{r}
+Maxwell_suppl1 <- read_excel("data/Maxwell_suppl1.xlsx")
+Maxwell_suppl1_gene_names <- Maxwell_suppl1$`Gene Name`[!is.na(Maxwell_suppl1$`Gene Name`)]
+# length(Maxwell_suppl1_gene_names)
+```
+
+They mention 140 genes but there's only 102 lines in their file, that's because 
+of how they wrote the gene names. I'm still comparing what I have here but am not taking the time to clean.
+
+Let's look at those genes in CTexploreR
+
+```{r}
+all_genes %>% 
+  filter(external_gene_name %in% Maxwell_suppl1_gene_names)
+```
+
+
+Only 87 of that list were analysed in CTexploreR. I could make that better by 
+cleaning the names. Some CT, some CTP genes but most of it is not CG at all.
+
+What part of those genes are CG genes ? 
+
+```{r}
+Maxwell_suppl1_gene_names[Maxwell_suppl1_gene_names %in% CT_genes$external_gene_name]
+
+# CT_genes %>% 
+#  filter(external_gene_name %in% Maxwell_suppl1_gene_names)
+```
+
+30 genes of the list they used are found in CTexploreR CG genes.  
+
+
+They also mention 26 genes that are essential for tumor cell viability and/or 
+are pathological drivers of HIF, WNT or TGFβ signalling. I can't find a list of 
+26 but I can see what they mention in the paper (21 genes) :
+
+- 2 main ones : FATE1 and ZNF165
+
+- From viability analysis : MAGEA2, MAGEA8, CTAG1B, COX6B2, CALR3, FTHL17, 
+SPATA19, IGSF11, CSAG1, CSAG3, CCDC110, FATE1 and ZNF165
+
+- From signalling pathways analysis: LDHC, XAGE1B, PAGE4, CTAGE1, IGF2BP3, 
+SPANXC, SPANXA2, DDX53, IGSF11, ZNF165
+
+Those are their genes of interest, with emphasis on FATE1 and ZNF165.
+
+```{r}
+Maxwell_important <- c("MAGEA2", "MAGEA8", "CTAG1B", "COX6B2", "CALR3", "FTHL17",
+                       "SPATA19", "IGSF11", "CSAG1", "CSAG3", "CCDC110", "FATE1",
+                       "ZNF165", "LDHC", "XAGE1B", "PAGE4", "CTAGE1", "IGF2BP3",
+                       "SPANXC", "SPANXA2", "DDX53")
+CT_genes %>% 
+  filter(external_gene_name %in% Maxwell_important)
+# all_genes %>% 
+#   filter(external_gene_name %in% Maxwell_important)
+```
+Only 7 of the 21 important genes are found as CT in CTexploreR, even though all 
+of them are in all_genes and were then analysed.
+
+What about their two most studied genes ?
+
+```{r}
+all_genes %>% 
+  filter(external_gene_name == "FATE1")
+
+all_genes %>% 
+  filter(external_gene_name == "ZNF165")
+```
+Their two most studied genes (FATE1 and ZNF165) are not CG genes and are both 
+not testis specific according to us (FATE1 because of HPA).
+
+-> There's no real list to compare. When comparing the genes they analysed in 
+their results to CTexploreR, only 7/21 are CG genes in CTexploreR. 
+
+# Review 2.2
+
+*Figure 2B: can the authors double check the upset plot? It seems that the numbers
+for the CTexploreR list do not add up to 146, but I might be mistaken.*
+
+I've checked that using the upset plot with the numbers, that is in the 02 rmd 
+on the paper repo. Indeed, summing all the numbers above the bars make 146 :
+48+19+7+4+14+10+8+2+1+12+4+2+1+7+2+1+1+3
+
+# Review 2.4-3.1
+
+*2.4 Non-Methdep CG genes do not seem to be regulated by DNA methylation. What are
+the hypotheses for their regulation? Chromatin marks or maybe downstream 
+transcriptional targets of other Methdep CG genes? Potential mechanisms should be
+discussed in more details in the discussion.*
+
+*3.1 It is unclear at this stage what differentiates Methdep from non-Methdep CG 
+genes. Beside their enrichment on the X-chromosome, are there other features 
+that distinguish the Methdep from non-Methdep CG genes ? It would be valuable to
+correlate with the presence or not of a CpG island at the promoter (or compare 
+promoter CG richness), as this is the type of promoters that is typically 
+methylation-sensitive. Also, transcription factor binding sites ?*
+
+Both the reviewers wanted us to characterise the regulation of the CG Non-Methdep.
+Charles and Axelle are going to have a look at transcription factors.
+
+I'm going to focus on the CpG density : compare MethDep and Non-MethDep promoters. 
+
+In CTexploreR, we characterised promoter as 1000nt upstream TSS and 200 nt 
+downstream TSS. There's a column `CpG_density`, that gives the density of CpG 
+within each promoter (number of CpG / promoter length * 100), and a column 
+`CpG_promoter`, that classifies the promoters according to their CpG densities: 
+"low" (CpG_density < 2), "intermediate" (CpG_density >= 2 & CpG_density < 4), 
+and "high" (CpG_density >= 4). I will be using that?
+
+```{r}
+methdepCT <- CT_genes %>% 
+  filter(regulated_by_methylation)
+
+nonmethdepCT <-CT_genes %>% 
+  filter(!regulated_by_methylation)
+
+table(CT_genes$group, CT_genes$CpG_promoter)
+# table(methdepCT$CpG_promoter)/dim(methdepCT)[1]
+# table(nonmethdepCT$CpG_promoter)/dim(nonmethdepCT)[1]
+```
+
+Proportionnally, Non-MethDep CT genes show more high CpG density promoters than 
+MethDep CT genes, that have more intermediate density promoters.
+This is actually quite logical as in female, the MethDep are methylated and thus at 
+risk of being mutated during evolution and lose CpG Islands, whereas non Methdep
+kept them.
+
+Let's have a look at the distribution of the promoters CpG density in both groups.
+
+```{r}
+# summary(methdepCT$CpG_density)
+# summary(nonmethdepCT$CpG_density)
+
+CT_genes %>% 
+  filter(!is.na(regulated_by_methylation)) %>% 
+  ggplot(aes(x = group, y = CpG_density, 
+             fill = group)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_jitter(alpha = 0.2) +
+  scale_fill_manual(values = MethDep_colors) +
+  theme_bw() +
+  ylab("CpG density of promoters (%)") +
+  xlab("CG genes") +
+  theme(legend.position = "none", 
+        aspect.ratio = 2)
+```
+
+Boxplot show that there is more variance for Non-MethDep genes. Is there a 
+statistically significant difference ?
+
+First I have to check the data normality to know what test to do.
+
+```{r}
+shapiro.test(methdepCT$CpG_density)
+shapiro.test(nonmethdepCT$CpG_density)
+```
+
+p value is significative for both so we reject normality of the data
+
+Use a Wilcoxon test to compare distributions as they are not normal and few observations.
+
+```{r}
+wilcox.test(methdepCT$CpG_density, nonmethdepCT$CpG_density)
+```
+
+The pvalue testing the difference between the distributions is not significative, 
+we can't say that there's a difference between those two distributions. There's 
+then no statistically significative difference between those two distributions and
+the CpG density of promoters that are MethDep and Non-MethDep.
+
+
+# Review 3.4
+
+*It may be interesting to investigate the evolutionary track of these CG genes, 
+particularly the X-linked Methdep ones, as they tend to be organized as family 
+gene clusters. How much are they conserved, are they primate/hominoid-specific ?*
+
+Question is then, how much are the X-linked MethDep CT conserved through evolution?
+For that, I need to find the tools to be able to compare MethDep and non MethDep 
+and see if MethDep are more conserved before the others, if some are more recent.
+I need different species that recapitulate evolution.
+
+Those are the genes I analyse and the species I'm using.
+
+```{r}
+gene_names <- all_genes$external_gene_name
+
+all_genes <- all_genes %>% 
+  mutate(group = case_when(CT_gene_type == "CT_gene" & regulated_by_methylation & X_linked ~ "X-linked Methdep CG",
+                           CT_gene_type == "CT_gene" & regulated_by_methylation & !X_linked ~ "Not X Methdep CG",
+                           CT_gene_type == "CT_gene" & !regulated_by_methylation ~ "Non-Methdep CG",
+                           CT_gene_type == "other" & X_linked ~ "X-linked other",
+                           CT_gene_type == "other" & !X_linked & chr != "Y" ~ "Autosomal other"))
+
+table(all_genes$group, useNA = "ifany")
+n_in_group <- table(all_genes$group, useNA = "ifany") %>% 
+  data.frame() %>% 
+  dplyr::rename("group" = "Var1", "n_in_group" = "Freq")
+
+species <- c("mmusculus",  # mouse
+             "mmulatta",   # macaque
+             "ggorilla", # gorilla
+             "ptroglodytes", # chimp
+             "clfamiliaris",  # dog
+             "ggallus",    # chicken
+             "drerio",      # zebrafish
+             "dmelanogaster", # drosophilia
+             "xtropicalis", # Xenope frog
+             "celegans") # worm
+species
+```
+
+Ensembl database has information about orthologs and evolution, I can access and
+manipulate those using BiomaRt.
+
+```{r}
+ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+# To see what I want to get from ensembl, see here
+# View(listAttributes(ensembl))
+# I chose the attributes I wanted there
+
+# I want a table per specie
+
+for (specie in species) {
+  attributes <- c("external_gene_name", "ensembl_gene_id",
+                  paste0(specie, "_homolog_ensembl_gene"), # gene stable id
+                  paste0(specie, "_homolog_associated_gene_name"), # gene name
+                  paste0(specie, "_homolog_subtype"), # last common ancestor
+                  paste0(specie, "_homolog_orthology_type"), # homology type
+                  paste0(specie, "_homolog_perc_id"), # %id. target species gene identical to query gene
+                  paste0(specie, "_homolog_orthology_confidence")) # orthology confidence [0 low, 1 high]
+  
+  tmp <-  getBM(attributes = attributes,
+                filters = "external_gene_name",
+                values = gene_names,
+                mart = ensembl)
+  
+colnames(tmp) <- c("external_gene_name", "ensembl_gene_id",
+                  "homolog_ensembl_gene","homolog_associated_gene_name", 
+                  "homolog_subtype", "homolog_orthology_type", "homolog_perc_id",
+                  "homolog_orthology_confidence")
+  tmp <- tmp %>% 
+    filter(!is.na(homolog_perc_id)) %>% # to keep only when ortholog found
+    mutate(species = specie)
+  assign(paste0(specie, "_orthologs"), tmp)
+}
+```
+
+What does these data look like ? Example with the mouse here.
+
+```{r}
+mmusculus_orthologs
+```
+
+All genes can be represented numerous times as they can have a multitude of 
+orthologs, with more or less confidence and identity. Here are the number of 
+genes for which there is at least one ortholog and the number of genes that have
+confident orthologs.
+
+```{r}
+mmusculus_orthologs %>% 
+  pull(external_gene_name) %>% 
+  unique() %>% 
+  length()
+
+mmusculus_orthologs %>% 
+  filter(homolog_orthology_confidence == 1) %>% 
+  filter(!duplicated(external_gene_name)) %>% 
+  nrow()
+```
+
+In order to visualise those results and compare species, I want to know what 
+percentage of each group of genes has orthologs in each specie.
+
+```{r}
+species_data <- list(mmusculus_orthologs, mmulatta_orthologs, ggorilla_orthologs,
+                     ptroglodytes_orthologs,clfamiliaris_orthologs,
+                     ggallus_orthologs, drerio_orthologs, dmelanogaster_orthologs,
+                     xtropicalis_orthologs, celegans_orthologs)
+
+# I want a table with one line per gene found in each specie
+all_orthologs <- tibble()
+
+for (i in 1:length(species_data)) {
+  # First I want to make sure I'm keeping a confident one where there is 
+  tmp1 <- species_data[[i]] %>% 
+    group_by(external_gene_name) %>%
+    filter(homolog_orthology_confidence == "1") %>% # keeps the confident one if there is one
+    ungroup() %>%
+    filter(!duplicated(external_gene_name)) # keeps only one if same %
+  
+  # Then I keep the max % when it's not confident 
+  # (when just doing this, the duplicated filter was removing confident ones)
+  tmp2 <- species_data[[i]] %>% 
+    filter(!external_gene_name %in% tmp1$external_gene_name) %>% 
+    group_by(external_gene_name) %>%
+    filter(homolog_perc_id == max(homolog_perc_id)) %>% # keeps the more alike
+    ungroup() %>%
+    filter(!duplicated(external_gene_name))
+  
+  tmp <- rbind(tmp1, tmp2)  
+  
+  all_orthologs <- rbind(all_orthologs, tmp)
+}
+
+all_orthologs
+```
+
+The table here contains one line per gene in each specie, either the high confidence
+one or the maximum percentage of id. 
+
+```{r}
+all_orthologs_total_n <- all_orthologs %>% 
+  left_join(dplyr::select(all_genes, external_gene_name, group)) %>% 
+  filter(!is.na(group)) %>% 
+  group_by(species, group) %>% 
+  summarise(n_total_in_specie = n())
+
+all_orthologs_highconf_n <- all_orthologs %>% 
+  filter(homolog_orthology_confidence == "1") %>% 
+  left_join(dplyr::select(all_genes, external_gene_name, group)) %>% 
+  filter(!is.na(group)) %>% 
+  group_by(species, group) %>% 
+  summarise(n_highconf_in_specie = n())
+
+all_orthologs_lowconf_n <- all_orthologs %>% 
+  filter(homolog_orthology_confidence == "0") %>% 
+  left_join(dplyr::select(all_genes, external_gene_name, group)) %>% 
+  filter(!is.na(group)) %>% 
+  group_by(species, group) %>% 
+  summarise(n_lowconf_in_specie = n())
+
+all_orthologs_perc <- all_orthologs_total_n %>% 
+  left_join(all_orthologs_highconf_n) %>% 
+  left_join(all_orthologs_lowconf_n) %>% 
+  left_join(n_in_group) %>% 
+  mutate(total_percentage_in_specie = n_total_in_specie/n_in_group * 100,
+         highconf_percentage_in_specie = n_highconf_in_specie/n_in_group * 100,
+         lowconf_percentage_in_specie = n_lowconf_in_specie/n_in_group * 100) %>% 
+  mutate(group = factor(group, levels = c("Autosomal other", "X-linked other", 
+                                          "Non-Methdep CG", "Not X Methdep CG", 
+                                          "X-linked Methdep CG"))) %>% 
+  mutate(species = factor(species, levels = c("ptroglodytes", "mmulatta", "ggorilla", 
+                                              "clfamiliaris", "mmusculus",
+                                              "ggallus", "xtropicalis", "drerio",
+                                              "dmelanogaster", "celegans")))
+
+all_orthologs_perc
+```
+
+I can use this table to do a visualisation. 
+
+```{r}
+all_orthologs_perc %>% 
+  ggplot(aes(x = total_percentage_in_specie, y = group, fill = group)) +
+  geom_col(aes(x = 100), fill = "white", color = "grey47", alpha = 0.3)+
+  geom_col() +
+  scale_fill_manual(values = all_groups_colors) +
+  facet_grid(~species) +
+  theme_minimal() +
+  ylab("Genes") +
+  xlab("Percentage of conservated genes") + 
+  theme(legend.position = "none", 
+        aspect.ratio = 1.5,
+        axis.text.x = element_text(angle = 0, 
+                                   size = 7, 
+                                   vjust = 3)) +
+  scale_x_continuous(breaks = c(0, 50, 100))
+
+```
+
+We can see that, for mmusculus, X-linked CG genes are way less conserved than 
+all others X-linked. MethDep CT genes seems to be quite specific to primates.
+
+I can do it again but only keeping the species that are the most interesting.
+
+```{r}
+all_orthologs_perc %>%
+  filter(!species %in% c("clfamiliaris", "ggallus", "xtropicalis", "dmelanogaster")) %>% 
+  ggplot(aes(x = total_percentage_in_specie, y = group, fill = group)) +
+  geom_col(aes(x = 100), fill = "white", color = "grey47", alpha = 0.3)+
+  geom_col() +
+  scale_fill_manual(values = all_groups_colors) +
+  facet_grid(~species) +
+  theme_minimal() +
+  ylab("Genes") +
+  xlab("Percentage of conservated genes") + 
+  theme(legend.position = "none", 
+        aspect.ratio = 1.5,
+        axis.text.x = element_text(angle = 0, 
+                                   size = 7, 
+                                   vjust = 3)) +
+  scale_x_continuous(breaks = c(0, 50, 100))
+```
+
+
+I can do the same thing but highlighting the amount of genes that has a confident 
+homolog (in dark) or not (in light).
+
+```{r}
+all_orthologs_perc %>% 
+  ggplot(aes(y = group, fill = group)) +
+  geom_col(aes(x = 100), fill = "white", color = "grey47", alpha = 0.3) +
+  geom_col(aes(x = total_percentage_in_specie), alpha = 0.5) +
+  geom_col(aes(x = highconf_percentage_in_specie)) +
+  scale_fill_manual(values = all_groups_colors) +
+  facet_grid(~species) +
+  theme_minimal() +
+  ylab("Genes") +
+   xlab("Percentage of conservated genes \n (dark = high confidence, light = low confidence)") + 
+  theme(legend.position = "none", 
+        aspect.ratio = 1.5,
+        axis.text.x = element_text(angle = 0, 
+                                   size = 7, 
+                                   vjust = 3)) +
+  scale_x_continuous(breaks = c(0, 50, 100))
+
+all_orthologs_perc %>%
+  filter(!species %in% c("clfamiliaris", "ggallus", "xtropicalis", "dmelanogaster", "celegans")) %>% 
+  ggplot(aes(y = group, fill = group)) +
+  geom_col(aes(x = 100), fill = "white", color = "grey47", alpha = 0.3) +
+  geom_col(aes(x = total_percentage_in_specie), alpha = 0.5) +
+  geom_col(aes(x = highconf_percentage_in_specie)) +
+  scale_fill_manual(values = all_groups_colors) +
+  facet_grid(~species) +
+  theme_minimal() +
+  ylab("") +
+  xlab("Percent of genes conserved in H. sapiens \n (considering either high (dark) or low (light) confidence orthologues)") + 
+  theme(legend.position = "none", 
+        aspect.ratio = 1.5,
+        axis.text.x = element_text(angle = 0, 
+                                   size = 7, 
+                                   vjust = 2),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks.x = element_line(size = 0.4)) +
+  scale_x_continuous(limits = c(0, 100), labels = c("0","", "", "", "100"))
+```
+
+
+Seems like something evolved in primates using imprinting.
+
+```{r, echo = FALSE, eval = FALSE}
+pdf("figs/evolution_of_CT.pdf",
+    height = 3, width = 9)
+all_orthologs_perc %>%
+  filter(!species %in% c("clfamiliaris", "ggallus", "xtropicalis", "dmelanogaster", "celegans")) %>% 
+  ggplot(aes(y = group, fill = group)) +
+  geom_col(aes(x = 100), fill = "white", color = "grey47", alpha = 0.3) +
+  geom_col(aes(x = total_percentage_in_specie), alpha = 0.5) +
+  geom_col(aes(x = highconf_percentage_in_specie)) +
+  scale_fill_manual(values = all_groups_colors) +
+  facet_grid(~species) +
+  theme_minimal() +
+  ylab("") +
+  xlab("Percent of genes conserved in H. sapiens \n (considering either high (dark) or low (light) confidence orthologues)") + 
+  theme(legend.position = "none", 
+        aspect.ratio = 1.5,
+        axis.text.x = element_text(angle = 0, 
+                                   size = 7, 
+                                   vjust = 2),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks.x = element_line(size = 0.4)) +
+  scale_x_continuous(limits = c(0, 100), labels = c("0","", "", "", "100"))
+dev.off()
+
+
+```
+
+
+# Review 3.5 
+
+*And for the ones that are present in the mouse genome, it would be interesting to
+assess whether there is conservation of their male-specific expression in germ 
+cells (versus female germ cells) and female-specific expression in embryos (versus
+male embryos).*
+
+Question is then, is it conserved in mouse to have male specificity? This could
+hint towards mice study. This has to be looked at in pre implanted embryo and in
+gametogenesis, to have a comparative analysis between male and female. 
+
+The answers found at the previous question, showing there isn't really a conservation
+of those genes in the mice as the sex biased genes are mostly human specific. 
+Other elements of answer are more detailed in Axelle's review
+
+
+
+
+
